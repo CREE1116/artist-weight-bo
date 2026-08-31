@@ -129,6 +129,41 @@ textarea{resize:vertical;min-height:64px;line-height:1.5;}
 hr{border:0;border-top:1px solid var(--line);margin:16px 0;}
 a{color:var(--accent)}
 ::selection{background:color-mix(in srgb,var(--accent) 35%,transparent);}
+
+/* ---------- phone: bigger touch targets, images capped so both duel
+   candidates fit on one screen (landscape-ish framing) instead of a
+   long portrait scroll ---------- */
+@media(max-width:640px){
+  body{font-size:16px;}
+  .topbar-inner{padding:10px 14px;gap:10px;}
+  .brand .mark{width:34px;height:34px;font-size:13px;}
+  .brand b{font-size:16px;}
+  .tab-btn{font-size:14.5px;padding:10px 13px;}
+  .round-pill{font-size:12.5px;padding:5px 11px;}
+  main{padding:18px 14px 72px;}
+  .view h1{font-size:25px;}
+  .view > p.lede{font-size:14px;}
+  .eyebrow{font-size:11.5px;}
+  .panel{padding:16px;border-radius:16px;}
+  .panel-head h2{font-size:15.5px;}
+  button.primary,button.ghost,button.danger{padding:13px 18px;font-size:15px;border-radius:11px;}
+  .field{font-size:13px;}
+  .field label{font-size:13.5px;}
+  input[type=text],input[type=password],input[type=number],textarea,select{font-size:16px;padding:13px 12px;border-radius:10px;}
+  .toggle .track{width:40px;height:23px;}
+  .toggle .track::after{width:17px;height:17px;}
+  .toggle input:checked + .track::after{left:20px;}
+  .toggle span.label{font-size:14.5px;}
+  .duel-card img{max-height:34vh;}
+  .duel-card{padding:12px;border-radius:18px;}
+  .duel-card .letter{width:30px;height:30px;font-size:13px;}
+  .bar-row{font-size:12.5px;}
+  .status-line{font-size:14px;}
+  .empty-card{padding:32px 18px;font-size:14px;}
+  .gallery-grid{grid-template-columns:repeat(auto-fill,minmax(105px,1fr));}
+  .record-row{font-size:13px;}
+  .chip{font-size:12px;}
+}
 </style>
 
 <header class="topbar">
