@@ -90,7 +90,7 @@ class BOSession:
     # -- duel proposal -----------------------------------------------------
     def propose_duel(self) -> tuple[dict[str, float], dict[str, float], int, int]:
         if not self.pairs:
-            neutral = torch.tensor(self.initial_point).clamp(0.0, 1.0)
+            neutral = torch.full((self.dim,), self._normalize(1.0)).clamp(0.0, 1.0)
             random_point = torch.rand(self.dim, generator=self.generator)
             left_x, right_x = neutral, random_point
         else:

@@ -502,7 +502,7 @@ class BOSession{
   proposeDuel(){
     let leftX, rightX;
     if(this.pairs.length===0){
-      leftX=this.initialPoint.slice();
+      leftX=new Array(this.dim).fill(Math.min(1,Math.max(0,this.normalize(1.0))));
       rightX=this.randPoint();
     } else {
       this.gp.fit(this.points, this.pairs);
