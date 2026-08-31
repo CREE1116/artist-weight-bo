@@ -43,12 +43,14 @@ function setProgress(show, frac) {
   if (show) bar.style.width = `${Math.round((frac || 0) * 100)}%`;
 }
 
-function weightBars(weights) {
+function weightBars(weights, excluded) {
   const bounds = currentConfig ? currentConfig.weight_bounds : [0.2, 1.6];
   const [lo, hi] = bounds;
   const rows = Object.entries(weights).map(([tag, w]) => {
     const frac = Math.max(0, Math.min(1, (w - lo) / (hi - lo)));
-    return `<div class="bar-row"><div><b>${tag}</b><div class="bar-track"><i style="width:${(frac*100).toFixed(0)}%"></i></div></div><div class="val">${w.toFixed(2)}</div></div>`;
+    const isOut = excluded && excluded.has(tag);
+    const style = isOut ? ' style="opacity:.4;text-decoration:line-through;"' : '';
+    return `<div class="bar-row"${style}><div><b>${tag}</b><div class="bar-track"><i style="width:${(frac*100).toFixed(0)}%"></i></div></div><div class="val">${w.toFixed(2)}</div></div>`;
   }).join('');
   return `<div class="bars">${rows}</div>`;
 }
@@ -109,9 +111,13 @@ async function loadBestPanel() {
   const data = await res.json();
   document.getElementById('best-observed').textContent = data.observed_pairs;
   const view = document.getElementById('best-weights-view');
-  view.innerHTML = data.observed_pairs ? weightBars(data.weights) : '<div style="color:var(--muted);font-size:12px;">아직 선택 기록이 없습니다 — 균등 가중치(1.0) 기준입니다.</div>';
+  const excluded = new Set(data.excluded || []);
+  view.innerHTML = data.observed_pairs ? weightBars(data.weights, excluded) : '<div style="color:var(--muted);font-size:12px;">아직 선택 기록이 없습니다 — 균등 가중치(1.0) 기준입니다.</div>';
+
   const cutoffInput = document.getElementById('cutoff-threshold');
-  if (cutoffInput && !cutoffInput.value && currentConfig) cutoffInput.value = currentConfig.weight_bounds[0];
+  if (document.activeElement !== cutoffInput) cutoffInput.value = data.cutoff;
+  const resultEl = document.getElementById('cutoff-result');
+  resultEl.textContent = excluded.size ? `프롬프트에서 제외됨: ${[...excluded].join(', ')}` : (data.cutoff > 0 ? '컷오프 미만 태그 없음' : '');
 }
 
 document.getElementById('copy-best').addEventListener('click', async () => {
@@ -125,33 +131,25 @@ document.getElementById('copy-best').addEventListener('click', async () => {
   }
 });
 
-// ---------- Cutoff (drop low-weight artist tags) ----------
+// ---------- Prompt cutoff (treat low-weight tags as absent, tag stays in search space) ----------
 document.getElementById('cutoff-apply').addEventListener('click', async () => {
   const input = document.getElementById('cutoff-threshold');
-  const bounds = currentConfig ? currentConfig.weight_bounds : [0.2, 1.6];
   const threshold = parseFloat(input.value);
-  const resultEl = document.getElementById('cutoff-result');
-  if (Number.isNaN(threshold)) { resultEl.textContent = '컷오프 값을 입력하세요.'; return; }
+  if (Number.isNaN(threshold)) { document.getElementById('cutoff-result').textContent = '컷오프 값을 입력하세요.'; return; }
+  await fetch('/prompt-cutoff', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ threshold }) });
+  if (currentConfig) currentConfig.prompt_cutoff = threshold;
+  toast(`컷오프 ${threshold} 적용됨`);
+  loadBestPanel();
+});
 
-  const preview = await (await fetch(`/cutoff-preview?threshold=${threshold}`)).json();
-  if (!preview.removed.length) {
-    resultEl.textContent = `${threshold.toFixed(2)} 미만 태그 없음 — 제거할 게 없습니다. (범위: ${bounds[0]}~${bounds[1]})`;
-    return;
-  }
-  const ok = confirm(`다음 ${preview.removed.length}개 태그를 세트에서 제거합니다 (weight < ${threshold}):\n\n${preview.removed.join(', ')}\n\n남는 태그: ${preview.kept.join(', ') || '(없음)'}\n\n이 작업은 되돌릴 수 없습니다 (제거된 태그의 과거 관측치도 함께 삭제됨). 계속할까요?`);
+// ---------- Reset progress (keep tags/config, clear duel history) ----------
+document.getElementById('s-reset').addEventListener('click', async () => {
+  const ok = confirm('지금까지의 A/B 선택 기록과 라운드를 전부 지웁니다. 태그/프롬프트/설정은 유지됩니다.\n\n계속할까요?');
   if (!ok) return;
-
-  const res = await fetch('/cutoff-apply', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ threshold }) });
-  const data = await res.json();
-  if (data.ok) {
-    resultEl.textContent = `제거됨: ${data.removed.join(', ')} · 남은 태그: ${data.kept.join(', ')}`;
-    toast(`${data.removed.length}개 태그 제거됨`);
-    await loadSettings(); // artist_tags textarea should reflect the pruned set too
-    loadBestPanel();
-    pollDuel();
-  } else {
-    resultEl.textContent = data.error || 'cutoff failed';
-  }
+  await fetch('/reset', { method: 'POST' });
+  toast('진행 상황 초기화됨');
+  loadBestPanel();
+  pollDuel();
 });
 
 // ---------- Gallery ----------
@@ -270,6 +268,7 @@ async function loadSettings() {
   document.getElementById('s-artist-tags').value = (c.artist_tags || []).join('\n');
   document.getElementById('s-weight-min').value = c.weight_bounds[0];
   document.getElementById('s-weight-max').value = c.weight_bounds[1];
+  document.getElementById('s-prompt-cutoff').value = c.prompt_cutoff || 0;
   document.getElementById('s-base-prompt').value = c.base_prompt || '';
   document.getElementById('s-quality-prompt').value = c.quality_prompt || '';
   document.getElementById('s-negative-prompt').value = c.negative_prompt || '';
@@ -294,6 +293,7 @@ async function saveSettings() {
     artist_tags: document.getElementById('s-artist-tags').value.split('\n').map(s => s.trim()).filter(Boolean),
     weight_min: parseFloat(document.getElementById('s-weight-min').value),
     weight_max: parseFloat(document.getElementById('s-weight-max').value),
+    prompt_cutoff: parseFloat(document.getElementById('s-prompt-cutoff').value) || 0,
     base_prompt: document.getElementById('s-base-prompt').value,
     quality_prompt: document.getElementById('s-quality-prompt').value,
     negative_prompt: document.getElementById('s-negative-prompt').value,

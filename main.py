@@ -29,6 +29,7 @@ DEFAULT_CONFIG = {
     "seed": 42,
     "artist_tags": [],
     "weight_bounds": [0.2, 1.6],
+    "prompt_cutoff": 0.0,
     "max_rounds": 25,
     "candidate_pool": 300,
     "port": 8787,

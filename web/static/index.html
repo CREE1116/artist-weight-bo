@@ -40,9 +40,9 @@
         <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);">
           컷오프
           <input id="cutoff-threshold" type="number" step="0.05" style="width:80px;" placeholder="0.35">
-          이하 태그 제거
+          미만 태그는 프롬프트에서 없는 것으로 취급 (탐색 대상에서는 안 빠짐)
         </label>
-        <button id="cutoff-apply" class="ghost">✂ 적용</button>
+        <button id="cutoff-apply" class="ghost">적용</button>
       </div>
       <div id="cutoff-result" style="font-size:11px;color:var(--muted);margin-top:6px;"></div>
     </article>
@@ -101,6 +101,9 @@
           <label>Weight min<input id="s-weight-min" type="number" step="0.05"></label>
           <label>Weight max<input id="s-weight-max" type="number" step="0.05"></label>
         </div>
+        <label>Prompt cutoff — 이 값 미만 가중치 태그는 프롬프트에서 없는 것으로 취급 (BO 탐색 대상에서는 안 빠짐)
+          <input id="s-prompt-cutoff" type="number" step="0.05" placeholder="0 = 끔">
+        </label>
       </article>
 
       <article class="panel form">
@@ -129,6 +132,10 @@
         </div>
         <button id="s-save" class="primary wide">Save & apply</button>
         <div id="s-msg" style="font-size:12px;"></div>
+        <hr>
+        <span class="eyebrow">DANGER ZONE</span>
+        <p style="font-size:11px;color:var(--muted);margin:-4px 0 0;">지금까지의 A/B 선택 기록·라운드·GP posterior를 전부 지우고 처음부터 다시 탐색합니다. 태그/프롬프트/설정은 그대로 유지됩니다.</p>
+        <button id="s-reset" class="ghost" style="border-color:#a44;color:#f88;">🗑 진행 상황 초기화</button>
       </article>
     </div>
   </section>

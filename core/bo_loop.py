@@ -70,6 +70,15 @@ class BOSession:
     def is_done(self) -> bool:
         return self.round >= self.max_rounds
 
+    def reset(self) -> None:
+        """Clear all duel history/observations, keep tags/config as-is."""
+        self.points = []
+        self.pairs = []
+        self.round = 0
+        self.history = []
+        self._best_cache = None
+        self._persist()
+
     # -- duel proposal -----------------------------------------------------
     def propose_duel(self) -> tuple[dict[str, float], dict[str, float], int, int]:
         if not self.pairs:
@@ -167,35 +176,3 @@ class BOSession:
                 "best": round(self._denormalize(float(best_x[i])), 3),
             })
         return {"series": series, "best_weights": self.to_weights(best_x)}
-
-    # -- cutoff / pruning --------------------------------------------------
-    def preview_cutoff(self, threshold: float) -> dict:
-        """Which tags would be dropped if pruned now (current best weight < threshold)."""
-        weights = self.best_weights()
-        removed = [tag for tag in self.tags if weights[tag] < threshold]
-        kept = [tag for tag in self.tags if weights[tag] >= threshold]
-        return {"removed": removed, "kept": kept, "weights": weights}
-
-    def prune(self, threshold: float) -> dict:
-        """Drop tags whose current best weight is below threshold. Existing duel
-        history is kept — only the pruned tags' columns are sliced out of each
-        recorded point, so past A/B pairs over the remaining tags stay valid."""
-        preview = self.preview_cutoff(threshold)
-        removed = preview["removed"]
-        if not removed:
-            return {"removed": [], "kept": list(self.tags)}
-
-        keep_idx = [i for i, tag in enumerate(self.tags) if tag not in removed]
-        if not keep_idx:
-            # never prune to zero dims — keep the single highest-weight tag
-            best_tag = max(self.tags, key=lambda t: preview["weights"][t])
-            keep_idx = [self.tags.index(best_tag)]
-            removed = [t for i, t in enumerate(self.tags) if i not in keep_idx]
-
-        self.tags = [self.tags[i] for i in keep_idx]
-        self.dim = len(self.tags)
-        self.points = [[p[i] for i in keep_idx] for p in self.points]
-        self.gp = GPPreferenceModel(self.dim)
-        self._best_cache = None
-        self._persist()
-        return {"removed": removed, "kept": list(self.tags)}

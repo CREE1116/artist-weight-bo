@@ -37,6 +37,7 @@ class AppState:
         self.images_dir = images_dir
         self.lock = threading.Lock()
         self.status = "idle"  # needs_config | idle | generating | ready | done | error
+        self._advancing = False  # reentrancy guard, separate from `status` (choose() sets status="generating" itself for instant UI feedback)
         self.progress = 0.0
         self.left: dict | None = None
         self.right: dict | None = None
@@ -69,6 +70,7 @@ class AppState:
             self.session = self._build_session(new_config)
             self.provider = self._build_provider(new_config)
             self.status = "idle"
+            self._advancing = False
             self.left = self.right = None
             self.left_idx = self.right_idx = None
             self.error_message = ""
@@ -106,10 +108,13 @@ class AppState:
 
     def prompt_for(self, weights: dict[str, float]) -> str:
         tags = [ArtistTag(tag, weight) for tag, weight in weights.items()]
-        return render_prompt(self.config.get("base_prompt", ""), tags, self.config.get("quality_prompt", ""))
+        cutoff = float(self.config.get("prompt_cutoff", 0.0))
+        return render_prompt(self.config.get("base_prompt", ""), tags, self.config.get("quality_prompt", ""), cutoff=cutoff)
 
     def advance(self) -> None:
         with self.lock:
+            if self._advancing:
+                return  # another advance() is already in flight — never allocate two duels at once
             if not self.session.tags:
                 self.status = "needs_config"
                 return
@@ -121,10 +126,13 @@ class AppState:
                 self.status = "done"
                 self.best_snapshot = self.session.best_weights()
                 return
+            self._advancing = True
             self.status = "generating"
             self.progress = 0.0
-        try:
+            # propose_duel() allocates point indices — must happen inside the lock
+            # so two racing advance() calls can never both read the same next index.
             left_w, right_w, left_idx, right_idx = self.session.propose_duel()
+        try:
             seed = int(self.config.get("seed", 42))
             left_path = self.images_dir / f"r{self.session.round}-left.png"
             right_path = self.images_dir / f"r{self.session.round}-right.png"
@@ -142,6 +150,9 @@ class AppState:
             with self.lock:
                 self.status = "error"
                 self.error_message = str(error)
+        finally:
+            with self.lock:
+                self._advancing = False
 
     def choose(self, winner: str) -> None:
         with self.lock:
@@ -191,10 +202,15 @@ class AppState:
     def best(self) -> dict:
         with self.lock:
             weights = self.session.best_weights()
+            cutoff = float(self.config.get("prompt_cutoff", 0.0))
             prompt = self.prompt_for(weights)
-            artist_prompt = render_prompt("", [ArtistTag(tag, w) for tag, w in weights.items()], "")
+            artist_prompt = render_prompt("", [ArtistTag(tag, w) for tag, w in weights.items()], "", cutoff=cutoff)
+            excluded = [tag for tag, w in weights.items() if w < cutoff]
             observed = len(self.session.pairs)
-        return {"weights": weights, "prompt": prompt, "artist_prompt": artist_prompt, "observed_pairs": observed}
+        return {
+            "weights": weights, "prompt": prompt, "artist_prompt": artist_prompt,
+            "cutoff": cutoff, "excluded": excluded, "observed_pairs": observed,
+        }
 
     def landscape(self) -> dict:
         with self.lock:
@@ -204,22 +220,20 @@ class AppState:
             return {"ready": False, "observed_pairs": observed}
         return {"ready": True, "observed_pairs": observed, **result}
 
-    def cutoff_preview(self, threshold: float) -> dict:
+    def set_prompt_cutoff(self, threshold: float) -> None:
         with self.lock:
-            return self.session.preview_cutoff(threshold)
+            self.config["prompt_cutoff"] = threshold
+        config_store.save(self.config_path, self.config)
 
-    def cutoff_apply(self, threshold: float) -> dict:
+    def reset_progress(self) -> None:
         with self.lock:
-            result = self.session.prune(threshold)
-            if result["removed"]:
-                self.config["artist_tags"] = list(self.session.tags)
-                self.left = self.right = None
-                self.left_idx = self.right_idx = None
-                self.status = "idle"
-                self.error_message = ""
-        if result["removed"]:
-            config_store.save(self.config_path, self.config)
-        return result
+            self.session.reset()
+            self.left = self.right = None
+            self.left_idx = self.right_idx = None
+            self._advancing = False
+            self.status = "idle"
+            self.error_message = ""
+            self.best_snapshot = None
 
     def wiki_search(self, query: str, category: str) -> list[dict]:
         if self.wiki is None or not query.strip():
@@ -269,6 +283,7 @@ def _validate_config(body: dict) -> dict:
         "seed": int(body.get("seed", 42)),
         "artist_tags": tags,
         "weight_bounds": [lo, hi],
+        "prompt_cutoff": float(body.get("prompt_cutoff", 0.0)),
         "max_rounds": int(body.get("max_rounds", 25)),
         "candidate_pool": int(body.get("candidate_pool", 300)),
         "port": int(body.get("port", 8787)),
@@ -318,13 +333,6 @@ def make_handler(state: AppState):
                 return
             if path == "/landscape":
                 self._send_json(state.landscape())
-                return
-            if path == "/cutoff-preview":
-                try:
-                    threshold = float((query.get("threshold") or ["0"])[0])
-                except ValueError:
-                    threshold = 0.0
-                self._send_json(state.cutoff_preview(threshold))
                 return
             if path == "/wiki/search":
                 q = (query.get("q") or [""])[0]
@@ -388,7 +396,7 @@ def make_handler(state: AppState):
                 body = json.loads(self.rfile.read(length) or b"{}")
                 self._send_json(state.parse_prompt(str(body.get("text", ""))))
                 return
-            if self.path == "/cutoff-apply":
+            if self.path == "/prompt-cutoff":
                 length = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(length) or b"{}")
                 try:
@@ -396,10 +404,15 @@ def make_handler(state: AppState):
                 except (TypeError, ValueError):
                     self._send_json({"ok": False, "error": "invalid threshold"}, code=400)
                     return
-                self._send_json({"ok": True, **state.cutoff_apply(threshold)})
+                state.set_prompt_cutoff(threshold)
+                self._send_json({"ok": True, "cutoff": threshold})
                 return
             if self.path == "/start":
                 state.start()
+                self._send_json({"ok": True})
+                return
+            if self.path == "/reset":
+                state.reset_progress()
                 self._send_json({"ok": True})
                 return
             self.send_response(404)
