@@ -1,4 +1,17 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Artist Weight Lab</title>
+<meta name="description" content="Preferential Bayesian optimization over fixed NovelAI artist-tag weights — runs entirely in the browser.">
+<meta name="theme-color" content="#0b0d12">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Weight Lab">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
@@ -40,6 +53,7 @@ h1,h2,h3,p{margin:0}
 .tab-btn:hover{background:var(--surface2);color:var(--text);}
 .tab-btn.active{background:var(--surface2);color:var(--accent);}
 .round-pill{font-family:var(--font-mono);font-size:11px;font-weight:600;border:1px solid var(--line);border-radius:99px;padding:4px 9px;color:var(--muted);flex-shrink:0;}
+.bottombar{display:none;}
 
 /* ---------- layout ---------- */
 main{max-width:960px;margin:0 auto;padding:20px 16px 64px;}
@@ -138,9 +152,9 @@ a{color:var(--accent)}
   .topbar-inner{padding:10px 14px;gap:10px;}
   .brand .mark{width:34px;height:34px;font-size:13px;}
   .brand b{font-size:16px;}
-  .tab-btn{font-size:14.5px;padding:10px 13px;}
-  .round-pill{font-size:12.5px;padding:5px 11px;}
-  main{padding:18px 14px 72px;}
+  .tabs{display:none;}
+  .round-pill{font-size:12.5px;padding:5px 11px;margin-left:auto;}
+  main{padding:18px 14px calc(84px + env(safe-area-inset-bottom));}
   .view h1{font-size:25px;}
   .view > p.lede{font-size:14px;}
   .eyebrow{font-size:11.5px;}
@@ -150,11 +164,13 @@ a{color:var(--accent)}
   .field{font-size:13px;}
   .field label{font-size:13.5px;}
   input[type=text],input[type=password],input[type=number],textarea,select{font-size:16px;padding:13px 12px;border-radius:10px;}
+  /* stacked settings rows — 2-3 cramped inputs side by side was the main pain point */
+  .row{flex-direction:column;gap:12px;}
   .toggle .track{width:40px;height:23px;}
   .toggle .track::after{width:17px;height:17px;}
   .toggle input:checked + .track::after{left:20px;}
   .toggle span.label{font-size:14.5px;}
-  .duel-card img{max-height:34vh;}
+  .duel-card img{max-height:32vh;}
   .duel-card{padding:12px;border-radius:18px;}
   .duel-card .letter{width:30px;height:30px;font-size:13px;}
   .bar-row{font-size:12.5px;}
@@ -163,9 +179,24 @@ a{color:var(--accent)}
   .gallery-grid{grid-template-columns:repeat(auto-fill,minmax(105px,1fr));}
   .record-row{font-size:13px;}
   .chip{font-size:12px;}
+
+  /* thumb-reachable bottom tab bar instead of the cramped scrolling top strip */
+  .bottombar{
+    display:flex; position:fixed; left:0; right:0; bottom:0; z-index:30;
+    background:color-mix(in srgb,var(--bg) 92%,transparent); backdrop-filter:blur(14px);
+    border-top:1px solid var(--line);
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+  }
+  .bottombar .tab-btn{
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;
+    padding:7px 2px; border-radius:12px; font-size:10.5px; white-space:normal;
+  }
+  .bottombar .tab-btn .bi{font-size:19px;line-height:1;}
+  .bottombar .tab-btn.active{background:color-mix(in srgb,var(--accent) 14%,transparent);}
 }
 </style>
-
+</head>
+<body>
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand"><div class="mark">AW</div><b>Artist Weight Lab</b></div>
@@ -325,8 +356,15 @@ a{color:var(--accent)}
   </section>
 </main>
 
-<div class="toast" id="toast"></div>
+<nav class="bottombar" id="bottomTabs">
+  <button class="tab-btn active" data-view="duel"><span class="bi">⚔</span>Tournament</button>
+  <button class="tab-btn" data-view="gallery"><span class="bi">🖼</span>Gallery</button>
+  <button class="tab-btn" data-view="record"><span class="bi">🏆</span>Record</button>
+  <button class="tab-btn" data-view="landscape"><span class="bi">◎</span>Landscape</button>
+  <button class="tab-btn" data-view="settings"><span class="bi">⚙</span>Settings</button>
+</nav>
 
+<div class="toast" id="toast"></div>
 <script>
 'use strict';
 
@@ -1082,6 +1120,10 @@ document.getElementById('tabs').addEventListener('click', e=>{
   const btn=e.target.closest('.tab-btn'); if(!btn) return;
   switchTab(btn.dataset.view);
 });
+document.getElementById('bottomTabs').addEventListener('click', e=>{
+  const btn=e.target.closest('.tab-btn'); if(!btn) return;
+  switchTab(btn.dataset.view);
+});
 document.getElementById('copyBestBtn').addEventListener('click', copyBestArtistPrompt);
 document.getElementById('cutoffApplyBtn').addEventListener('click', applyCutoff);
 document.getElementById('s-save').addEventListener('click', saveSettingsForm);
@@ -1093,4 +1135,10 @@ loadSettingsForm();
 refreshStatus();
 render();
 renderBestPanel();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(()=>{}); });
+}
 </script>
+</body>
+</html>
