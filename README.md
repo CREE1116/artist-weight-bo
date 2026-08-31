@@ -1,5 +1,9 @@
 # Artist Weight BO
 
+[Releases](https://github.com/CREE1116/artist-weight-bo/releases)에서 macOS(Apple Silicon)·Windows(x64) 빌드를 받을 수 있습니다.
+압축 풀고 실행하면 됩니다 (macOS는 서명 안 된 빌드라 우클릭 → 열기 필요, Windows는 첫 실행 시
+Python 의존성이 없으면 자동 설치를 시도합니다 — Python 3.10+ / pip가 PATH에 있어야 함).
+
 고정된 작가 태그 목록의 **가중치만** 베이지안 최적화로 탐색하는 최소 도구입니다.
 GA로 태그 자체를 진화시키던 기존 style-genome-explorer와 달리, 태그 집합은
 config에서 고정하고 각 태그의 weight(연속값)만 탐색 변수로 둡니다.
@@ -43,18 +47,20 @@ python main.py
 진행 상태는 `work/state.json`에 저장되어 중단 후 재실행 시 이어집니다
 (단, 서버 재시작 시 마지막 라운드 이미지는 다시 생성됨).
 
-## 사용 (Electron 앱)
+## 소스에서 Electron 앱 빌드
 
 ```bash
-npm start            # 개발 모드 실행 (vendor/electron-dist 프리빌드 바이너리 재사용, 다운로드 없음)
-npm run build         # dist/mac-arm64/Artist Weight BO.app 생성
+npm install
+npm start              # 개발 모드 실행
+npm run build:mac      # dist/mac-arm64/Artist Weight BO.app + .zip
+npx electron-builder --win zip --x64   # dist/win-unpacked + .zip
 ```
 
-앱이 파이썬 서버를 자식 프로세스로 띄우고 창 하나를 엽니다. 시스템 python3에
-`torch`/`numpy`/`Pillow`가 설치되어 있어야 합니다 (`.venv`는 패키징에 포함하지 않음 — 원본
-프로젝트와 동일한 제약).
+앱이 파이썬 서버를 자식 프로세스로 띄우고 창 하나를 엽니다. 시스템 python3가 필요하며,
+`torch`/`numpy`/`Pillow`가 없으면 첫 실행 시 `pip install -r requirements.txt`를 자동으로
+시도합니다(로딩 화면에 진행 로그 표시). `.venv`는 패키징에 포함하지 않습니다.
 
-Tag Wiki는 `data/danbooru-wiki.sqlite3`(122MB, style-genome-explorer와 공유 심볼릭 링크)가
-있어야 동작합니다. 개발 모드에서는 자동으로 잡히지만, 빌드된 `.app`에는 기본적으로 포함되지 않아
-Tag Wiki 탭이 "not available"로 비활성 처리됩니다 — 배포 시 필요하면 `electron-builder`의
-`extraResources`로 DB를 따로 넣어야 합니다.
+Tag Wiki는 `data/danbooru-wiki.sqlite3`(122MB, [isek-ai/danbooru-wiki-2024](data/DANBOORU_WIKI_LICENSE.md)
+스냅샷)가 있어야 동작합니다. 저장소에는 포함되어 있지 않으니(git 용량 제한) 직접 넣거나, 없으면
+Tag Wiki 탭이 자동으로 "not available"로 비활성 처리됩니다 — 나머지 기능(BO 탐색·프롬프트 파싱의
+artist:/by: 명시 인식 등)은 그대로 동작합니다.
