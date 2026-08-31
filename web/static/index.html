@@ -33,7 +33,12 @@
 
     <article class="panel" style="margin-top:26px;max-width:640px;">
       <div class="panel-head"><h2>현재 최적 가중치</h2><button id="copy-best" class="ghost">📋 작가 태그만 복사</button></div>
-      <p style="font-size:11px;color:var(--muted);margin:-4px 0 0;">GP posterior 기준, 지금까지 선택 <span id="best-observed">0</span>개로 추정한 값입니다.</p>
+      <p style="font-size:11px;color:var(--muted);margin:-4px 0 8px;">GP posterior 기준, 지금까지 선택 <span id="best-observed">0</span>개로 추정한 값입니다.</p>
+      <div class="inline" style="gap:8px;margin-bottom:4px;">
+        <span style="font-size:11px;color:var(--muted);">신뢰도</span>
+        <div class="bar-track" style="flex:1;max-width:160px;"><i id="confidence-bar" style="width:0%;"></i></div>
+        <span id="confidence-pct" class="tabular" style="font-size:11px;color:var(--muted);">0%</span>
+      </div>
       <div id="best-weights-view" style="margin-top:12px;"></div>
       <hr>
       <div class="inline" style="justify-content:space-between;">

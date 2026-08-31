@@ -114,6 +114,10 @@ async function loadBestPanel() {
   const excluded = new Set(data.excluded || []);
   view.innerHTML = data.observed_pairs ? weightBars(data.weights, excluded) : '<div style="color:var(--muted);font-size:12px;">아직 선택 기록이 없습니다 — 균등 가중치(1.0) 기준입니다.</div>';
 
+  const confPct = Math.round((data.confidence || 0) * 100);
+  document.getElementById('confidence-bar').style.width = confPct + '%';
+  document.getElementById('confidence-pct').textContent = confPct + '%';
+
   const cutoffInput = document.getElementById('cutoff-threshold');
   if (document.activeElement !== cutoffInput) cutoffInput.value = data.cutoff;
   const resultEl = document.getElementById('cutoff-result');

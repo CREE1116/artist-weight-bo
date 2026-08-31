@@ -155,6 +155,20 @@ class BOSession:
             return {tag: 1.0 for tag in self.tags}
         return self.to_weights(best_x)
 
+    def confidence(self) -> dict:
+        """How much to trust the current 'best' point: 1 - posterior std at
+        that point (relative to the GP's prior/output scale). Low confidence
+        means the model hasn't pinned this down yet — most credible early on,
+        or for tags the user's choices haven't actually discriminated between.
+        """
+        best_x = self.best_point()
+        if best_x is None:
+            return {"confidence": 0.0, "std": 1.0, "observed_pairs": 0}
+        _, var = self.gp.predict(best_x.unsqueeze(0))
+        std = float(torch.sqrt(var[0]))
+        conf = max(0.0, 1.0 - min(1.0, std / (self.gp.outputscale ** 0.5)))
+        return {"confidence": conf, "std": std, "observed_pairs": len(self.pairs)}
+
     def landscape(self, resolution: int = 25) -> dict | None:
         """1D posterior-mean/std slice through each tag's weight axis, holding
         every other tag at the current best point. A cheap stand-in for a full
