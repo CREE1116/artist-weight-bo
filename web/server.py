@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from core.bo_loop import BOSession
-from core.genome import ArtistTag, render_prompt
+from core.genome import ArtistTag, effective_tags, render_prompt
 from core.provider import MockProvider, NovelAIProvider
 from core.wiki import DanbooruWiki
 from core.prompt_parser import classify_prompt_genes
@@ -139,6 +139,18 @@ class AppState:
         budget = float(self.config.get("weight_budget_per_tag", 1.0))
         return render_prompt(self.config.get("base_prompt", ""), tags, self.config.get("quality_prompt", ""), cutoff=cutoff, budget_per_tag=budget)
 
+    def display_weights(self, weights: dict[str, float]) -> dict[str, float]:
+        """What the UI should show — with the weight-budget scaling actually
+        applied, so the numbers on screen match what NovelAI actually
+        received instead of silently diverging from it. Tags excluded by the
+        prompt cutoff keep their raw (unscaled) value since they were never
+        part of the budget calculation in the first place."""
+        cutoff = float(self.config.get("prompt_cutoff", 0.0))
+        budget = float(self.config.get("weight_budget_per_tag", 1.0))
+        tags = [ArtistTag(tag, w) for tag, w in weights.items()]
+        active_map = {item.tag: item.weight for item in effective_tags(tags, cutoff, budget)}
+        return {tag: active_map.get(tag, w) for tag, w in weights.items()}
+
     def advance(self) -> None:
         with self.lock:
             if self._advancing:
@@ -169,8 +181,8 @@ class AppState:
                 self.progress = 0.5
             right_name = self._image_for(right_point, right_w, seed, f"r{self.session.round}-right.png")
             with self.lock:
-                self.left = {"weights": left_w, "image": f"/images/{left_name}"}
-                self.right = {"weights": right_w, "image": f"/images/{right_name}"}
+                self.left = {"weights": self.display_weights(left_w), "image": f"/images/{left_name}"}
+                self.right = {"weights": self.display_weights(right_w), "image": f"/images/{right_name}"}
                 self.left_idx, self.right_idx = left_idx, right_idx
                 self.status = "ready"
                 self.progress = 1.0
@@ -229,13 +241,14 @@ class AppState:
 
     def best(self) -> dict:
         with self.lock:
-            weights = self.session.best_weights()
+            raw_weights = self.session.best_weights()
             conf = self.session.confidence()
             cutoff = float(self.config.get("prompt_cutoff", 0.0))
             budget = float(self.config.get("weight_budget_per_tag", 1.0))
-            prompt = self.prompt_for(weights)
-            artist_prompt = render_prompt("", [ArtistTag(tag, w) for tag, w in weights.items()], "", cutoff=cutoff, budget_per_tag=budget)
-            excluded = [tag for tag, w in weights.items() if w < cutoff]
+            prompt = self.prompt_for(raw_weights)
+            artist_prompt = render_prompt("", [ArtistTag(tag, w) for tag, w in raw_weights.items()], "", cutoff=cutoff, budget_per_tag=budget)
+            excluded = [tag for tag, w in raw_weights.items() if w < cutoff]
+            weights = self.display_weights(raw_weights)
             observed = len(self.session.pairs)
         return {
             "weights": weights, "prompt": prompt, "artist_prompt": artist_prompt,

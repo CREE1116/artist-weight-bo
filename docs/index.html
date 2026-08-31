@@ -599,7 +599,7 @@ class BOSession{
       wiki verification — everything comma-separated is a candidate
       artist tag when importing).
    ============================================================ */
-function renderPrompt(basePrompt, artistTags, qualityPrompt, cutoff, budgetPerTag){
+function effectiveTags(artistTags, cutoff, budgetPerTag){
   cutoff = cutoff||0;
   budgetPerTag = budgetPerTag||0;
   let active = artistTags.filter(a=>a.weight>=cutoff);
@@ -612,9 +612,24 @@ function renderPrompt(basePrompt, artistTags, qualityPrompt, cutoff, budgetPerTa
     const budget=budgetPerTag*active.length;
     if(total>budget){
       const scale=budget/total;
-      active=active.map(a=>({tag:a.tag, weight:a.weight*scale}));
+      active=active.map(a=>({tag:a.tag, weight:Math.round(a.weight*scale*100)/100}));
     }
   }
+  return active;
+}
+function displayWeights(weights){
+  // What the UI should show — with the weight-budget scaling actually
+  // applied, so numbers on screen match what NovelAI actually received
+  // instead of silently diverging from it.
+  const cutoff=state.config.promptCutoff||0, budget=state.config.weightBudgetPerTag||0;
+  const active=effectiveTags(Object.entries(weights).map(([tag,weight])=>({tag,weight})), cutoff, budget);
+  const activeMap=Object.fromEntries(active.map(a=>[a.tag,a.weight]));
+  const out={};
+  for(const [tag,w] of Object.entries(weights)) out[tag]=activeMap[tag]??w;
+  return out;
+}
+function renderPrompt(basePrompt, artistTags, qualityPrompt, cutoff, budgetPerTag){
+  const active = effectiveTags(artistTags, cutoff, budgetPerTag);
   const parts=[];
   for(const {tag,weight} of active){
     const t = tag.startsWith('artist:') ? tag : 'artist:'+tag;
@@ -854,8 +869,8 @@ async function advance(){
     const leftImgId=await imageFor(leftPoint, leftWeights, seed);
     progress=0.5; render();
     const rightImgId=await imageFor(rightPoint, rightWeights, seed);
-    currentLeft={weights:leftWeights, imgId:leftImgId};
-    currentRight={weights:rightWeights, imgId:rightImgId};
+    currentLeft={weights:displayWeights(leftWeights), imgId:leftImgId};
+    currentRight={weights:displayWeights(rightWeights), imgId:rightImgId};
     currentLeftIdx=leftIdx; currentRightIdx=rightIdx;
     appStatus='ready'; progress=1;
     saveState();
@@ -964,7 +979,7 @@ function renderBestPanel(){
   const cutoff=state.config.promptCutoff||0;
   const excluded=new Set(Object.entries(weights).filter(([,w])=>w<cutoff).map(([t])=>t));
   document.getElementById('bestWeightsView').innerHTML = observed
-    ? weightBarsHtml(weights, excluded)
+    ? weightBarsHtml(displayWeights(weights), excluded)
     : '<p class="hint">아직 선택 기록이 없습니다 — 균등 가중치(1.0) 기준입니다.</p>';
   const cutoffInput=document.getElementById('cutoffInput');
   if(document.activeElement!==cutoffInput) cutoffInput.value=cutoff;
