@@ -58,6 +58,7 @@ class AppState:
             work_dir=self.work_dir,
             max_rounds=int(config.get("max_rounds", 25)),
             pool_size=int(config.get("candidate_pool", 300)),
+            initial_weights=config.get("initial_weights", {}),
         )
 
     def _build_provider(self, config: dict):
@@ -311,6 +312,9 @@ def _validate_config(body: dict) -> dict:
         "variety_plus": bool(body.get("variety_plus", False)),
         "seed": int(body.get("seed", 42)),
         "artist_tags": tags,
+        "initial_weights": {
+            tag: float(w) for tag, w in dict(body.get("initial_weights", {})).items() if tag in tags
+        },
         "weight_bounds": [lo, hi],
         "prompt_cutoff": float(body.get("prompt_cutoff", 0.0)),
         "reuse_threshold": float(body.get("reuse_threshold", 0.03)),

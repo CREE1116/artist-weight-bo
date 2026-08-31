@@ -1,4 +1,5 @@
 let currentConfig = null;
+let pendingInitialWeights = {};
 
 function toast(msg) {
   const el = document.getElementById('toast');
@@ -254,6 +255,7 @@ async function loadSettings() {
   const res = await fetch('/config');
   const data = await res.json();
   currentConfig = data.config;
+  pendingInitialWeights = { ...(data.config.initial_weights || {}) };
   const c = data.config;
 
   document.getElementById('provider-pill').textContent = c.use_live_novelai ? 'LIVE' : 'MOCK';
@@ -314,6 +316,7 @@ async function saveSettings() {
     seed: parseInt(document.getElementById('s-seed').value, 10),
     max_rounds: parseInt(document.getElementById('s-max-rounds').value, 10),
     candidate_pool: parseInt(document.getElementById('s-candidate-pool').value, 10),
+    initial_weights: pendingInitialWeights,
   };
   const res = await fetch('/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
   const data = await res.json();
@@ -366,6 +369,7 @@ document.getElementById('s-parse-prompt').addEventListener('click', async () => 
   const artistsAdded = mergeLines(document.getElementById('s-artist-tags'), data.artists.map(a => a.tag));
   const qualityAdded = mergeCommaList(document.getElementById('s-quality-prompt'), data.qualities.map(q => q.tag));
   const situationAdded = mergeCommaList(document.getElementById('s-base-prompt'), data.ignored.map(i => i.tag));
+  for (const a of data.artists) pendingInitialWeights[a.tag] = a.weight; // BO's first duel starts from these, not a blind 1.0
 
   const note = data.wiki_available ? '' : ' (danbooru wiki 없음 — artist: / by: 명시 태그만 인식됨)';
   const parts = [];

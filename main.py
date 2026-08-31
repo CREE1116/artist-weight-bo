@@ -28,6 +28,7 @@ DEFAULT_CONFIG = {
     "variety_plus": False,
     "seed": 42,
     "artist_tags": [],
+    "initial_weights": {},
     "weight_bounds": [0.2, 1.6],
     "prompt_cutoff": 0.0,
     "reuse_threshold": 0.03,

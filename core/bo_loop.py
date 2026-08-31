@@ -19,7 +19,8 @@ class BOSession:
     """
 
     def __init__(self, tags: list[str], weight_bounds: tuple[float, float], work_dir: Path,
-                 max_rounds: int = 25, pool_size: int = 300, seed: int = 0):
+                 max_rounds: int = 25, pool_size: int = 300, seed: int = 0,
+                 initial_weights: dict[str, float] | None = None):
         self.tags = tags
         self.dim = len(tags)
         self.lo, self.hi = weight_bounds
@@ -29,6 +30,13 @@ class BOSession:
         self.state_path = work_dir / "state.json"
         self.gp = GPPreferenceModel(self.dim)
         self.generator = torch.Generator().manual_seed(seed)
+
+        # Where the very first duel's incumbent starts — user-provided weights
+        # (e.g. from a pasted prompt) beat a blind uniform 1.0 for every tag.
+        initial_weights = initial_weights or {}
+        self.initial_point = [
+            min(1.0, max(0.0, self._normalize(initial_weights.get(tag, 1.0)))) for tag in tags
+        ]
 
         self.points: list[list[float]] = []  # normalized [0,1]^dim, index-addressed
         self.pairs: list[list[int]] = []  # [win_idx, lose_idx]
@@ -82,7 +90,7 @@ class BOSession:
     # -- duel proposal -----------------------------------------------------
     def propose_duel(self) -> tuple[dict[str, float], dict[str, float], int, int]:
         if not self.pairs:
-            neutral = torch.full((self.dim,), self._normalize(1.0)).clamp(0.0, 1.0)
+            neutral = torch.tensor(self.initial_point).clamp(0.0, 1.0)
             random_point = torch.rand(self.dim, generator=self.generator)
             left_x, right_x = neutral, random_point
         else:
