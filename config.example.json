@@ -1,0 +1,26 @@
+{
+  "novelai_token": "pst-xxxxxxxx",
+  "use_live_novelai": false,
+  "model": "nai-diffusion-4-5-full",
+  "base_prompt": "1girl, solo, looking at viewer",
+  "negative_prompt": "worst quality, low quality, blurry",
+  "quality_prompt": "very aesthetic, masterpiece, no text",
+  "width": 832,
+  "height": 1216,
+  "steps": 28,
+  "scale": 5.0,
+  "cfg_rescale": 0.0,
+  "sampler": "k_euler_ancestral",
+  "noise_schedule": "karras",
+  "variety_plus": false,
+  "seed": 42,
+  "artist_tags": [
+    "artist name a",
+    "artist name b",
+    "artist name c"
+  ],
+  "weight_bounds": [0.2, 1.6],
+  "max_rounds": 25,
+  "candidate_pool": 300,
+  "port": 8787
+}

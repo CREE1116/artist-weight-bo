@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Artist Weight BO</title>
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><div class="mark">AB</div><div><b>Artist Weight BO</b><span>PREFERENTIAL BAYESOPT</span></div></div>
+  <nav class="topbar-nav">
+    <button class="nav active" data-tab="tournament"><i>⚔</i> Tournament <span id="round-badge" class="pill" style="margin-left:6px;">0 / 0</span></button>
+    <button class="nav" data-tab="gallery"><i>🖼</i> Gallery</button>
+    <button class="nav" data-tab="winrecord"><i>🏆</i> Win Record</button>
+    <button class="nav" data-tab="wiki"><i>⌕</i> Tag Wiki</button>
+    <button class="nav" data-tab="landscape"><i>◎</i> Loss Landscape</button>
+    <button class="nav" data-tab="settings"><i>⚙</i> Settings</button>
+  </nav>
+  <div class="top-actions"><span id="provider-pill" class="pill">MOCK</span></div>
+</header>
+
+<main>
+  <section id="tournament" class="tab active">
+    <div class="section-title">
+      <p class="kicker">A/B PREFERENCE</p>
+      <h1>어느 쪽이 더 마음에 드나요?</h1>
+      <p>클릭한 쪽이 이깁니다. 매 라운드 같은 seed로, 작가 태그 <b>가중치</b>만 바뀝니다.</p>
+    </div>
+    <div id="duel-content"></div>
+    <div class="progress" id="duel-progress" hidden><i id="duel-progress-bar" style="width:0%"></i></div>
+    <div class="compare-footer" id="duel-status"></div>
+
+    <article class="panel" style="margin-top:26px;max-width:640px;">
+      <div class="panel-head"><h2>현재 최적 가중치</h2><button id="copy-best" class="ghost">📋 작가 태그만 복사</button></div>
+      <p style="font-size:11px;color:var(--muted);margin:-4px 0 0;">GP posterior 기준, 지금까지 선택 <span id="best-observed">0</span>개로 추정한 값입니다.</p>
+      <div id="best-weights-view" style="margin-top:12px;"></div>
+      <hr>
+      <div class="inline" style="justify-content:space-between;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);">
+          컷오프
+          <input id="cutoff-threshold" type="number" step="0.05" style="width:80px;" placeholder="0.35">
+          이하 태그 제거
+        </label>
+        <button id="cutoff-apply" class="ghost">✂ 적용</button>
+      </div>
+      <div id="cutoff-result" style="font-size:11px;color:var(--muted);margin-top:6px;"></div>
+    </article>
+  </section>
+
+  <section id="gallery" class="tab">
+    <div class="section-title"><p class="kicker">GALLERY</p><h1>생성된 모든 이미지</h1></div>
+    <div id="gallery-grid"></div>
+  </section>
+
+  <section id="winrecord" class="tab">
+    <div class="section-title"><p class="kicker">HISTORY</p><h1>Win Record</h1></div>
+    <article class="panel"><div id="winrecord-list"></div></article>
+  </section>
+
+  <section id="wiki" class="tab">
+    <div class="section-title"><p class="kicker">DANBOORU WIKI</p><h1>Tag Wiki</h1><p>작가/일반 태그 검색용 참고 자료입니다. 여기서 넣어도 실험에 자동 반영되지 않습니다 — Settings의 artist tags를 직접 편집하세요.</p></div>
+    <div class="grid two" style="grid-template-columns:1fr 160px auto;">
+      <input id="wiki-q" placeholder="artist name or concept…">
+      <select id="wiki-category"><option value="">All</option><option value="artist">Artist</option><option value="general">General</option><option value="character">Character</option><option value="copyright">Copyright</option><option value="meta">Meta</option></select>
+      <button id="wiki-search" class="primary">Search</button>
+    </div>
+    <div id="wiki-results" style="margin-top:18px;display:grid;gap:10px;"></div>
+  </section>
+
+  <section id="landscape" class="tab">
+    <div class="section-title"><p class="kicker">GP POSTERIOR</p><h1>Loss Landscape</h1><p>현재 best point를 기준으로, 태그 하나씩만 가중치를 바꿔가며 본 posterior mean/std 1D 단면입니다. 각 차트는 상대 스케일입니다.</p></div>
+    <button id="landscape-refresh" class="ghost">다시 계산</button>
+    <div id="landscape-content" style="margin-top:18px;"></div>
+  </section>
+
+  <section id="settings" class="tab">
+    <div class="section-title">
+      <p class="kicker">CONFIGURATION</p>
+      <h1>Settings</h1>
+      <p>토큰은 로컬 config.json에만 저장됩니다.</p>
+    </div>
+
+    <div class="grid two">
+      <article class="panel form">
+        <span class="eyebrow">NOVELAI CONNECTION</span>
+        <label>Persistent API token<input id="s-token" type="password" placeholder="pst-••••••••••••••••"></label>
+        <label class="toggle inline"><input id="s-use-live" type="checkbox"><span></span>Use live NovelAI generation (off = mock/offline)</label>
+        <label>Model<select id="s-model"></select></label>
+        <hr>
+        <span class="eyebrow">PASTE A NAI PROMPT → AUTO-SPLIT INTO ARTIST / QUALITY / SITUATION</span>
+        <label>통짜 NAI 프롬프트 붙여넣기 — 태그 위키로 작가를 판별해서 artist tags / quality prompt / base(상황) prompt 세 곳에 자동으로 나눠 채웁니다.
+          <textarea id="s-prompt-import" rows="3" placeholder="1.3::some artist::, by another artist, masterpiece, best quality, 1girl, solo, looking at viewer, ..."></textarea>
+        </label>
+        <button id="s-parse-prompt" class="ghost wide">파싱해서 자동 채우기</button>
+        <div id="s-parse-result" style="font-size:11px;color:var(--muted);"></div>
+        <hr>
+        <span class="eyebrow">ARTIST TAGS (fixed set — weights only)</span>
+        <label>한 줄에 태그 하나<textarea id="s-artist-tags" rows="6" placeholder="artist name a&#10;artist name b"></textarea></label>
+        <div class="config-grid">
+          <label>Weight min<input id="s-weight-min" type="number" step="0.05"></label>
+          <label>Weight max<input id="s-weight-max" type="number" step="0.05"></label>
+        </div>
+      </article>
+
+      <article class="panel form">
+        <span class="eyebrow">PROMPT</span>
+        <label>Base prompt (subject/composition)<textarea id="s-base-prompt" rows="2"></textarea></label>
+        <label>Quality prompt<textarea id="s-quality-prompt" rows="2"></textarea></label>
+        <label>Negative prompt<textarea id="s-negative-prompt" rows="2"></textarea></label>
+        <hr>
+        <span class="eyebrow">GENERATION CONTROL</span>
+        <div class="config-grid">
+          <label>Width<input id="s-width" type="number" step="64"></label>
+          <label>Height<input id="s-height" type="number" step="64"></label>
+          <label>Steps<input id="s-steps" type="number" min="1" max="50"></label>
+          <label>Prompt Guidance<input id="s-scale" type="number" step="0.1"></label>
+          <label>Guidance Rescale<input id="s-rescale" type="number" step="0.05" min="0" max="1"></label>
+          <label>Seed<input id="s-seed" type="number"></label>
+          <label>Sampler<select id="s-sampler"></select></label>
+          <label>Noise schedule<select id="s-schedule"></select></label>
+        </div>
+        <label class="toggle inline"><input id="s-variety" type="checkbox"><span></span>Variety+</label>
+        <hr>
+        <span class="eyebrow">BO CONTROL</span>
+        <div class="config-grid">
+          <label>Max rounds<input id="s-max-rounds" type="number" min="1"></label>
+          <label>Candidate pool<input id="s-candidate-pool" type="number" min="10"></label>
+        </div>
+        <button id="s-save" class="primary wide">Save & apply</button>
+        <div id="s-msg" style="font-size:12px;"></div>
+      </article>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

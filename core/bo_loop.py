@@ -1,0 +1,201 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import torch
+
+from . import store
+from .gp_preference import GPPreferenceModel
+
+torch.set_default_dtype(torch.float64)
+
+
+class BOSession:
+    """Preferential Bayesian optimization over a fixed artist-tag weight vector.
+
+    Each round proposes a duel: an incumbent (posterior-mean best so far) vs a
+    Thompson-sampled challenger. The user's A/B pick becomes one pairwise
+    observation for the preference GP.
+    """
+
+    def __init__(self, tags: list[str], weight_bounds: tuple[float, float], work_dir: Path,
+                 max_rounds: int = 25, pool_size: int = 300, seed: int = 0):
+        self.tags = tags
+        self.dim = len(tags)
+        self.lo, self.hi = weight_bounds
+        self.max_rounds = max_rounds
+        self.pool_size = pool_size
+        self.work_dir = work_dir
+        self.state_path = work_dir / "state.json"
+        self.gp = GPPreferenceModel(self.dim)
+        self.generator = torch.Generator().manual_seed(seed)
+
+        self.points: list[list[float]] = []  # normalized [0,1]^dim, index-addressed
+        self.pairs: list[list[int]] = []  # [win_idx, lose_idx]
+        self.round = 0
+        self.history: list[dict] = []  # for display: {round, left, right, winner}
+        self._best_cache: tuple[int, torch.Tensor] | None = None  # (len(pairs), x) at last compute
+
+        self._load()
+
+    # -- persistence -----------------------------------------------------
+    def _load(self) -> None:
+        data = store.load(self.state_path)
+        if not data or data.get("tags") != self.tags:
+            return
+        self.points = data.get("points", [])
+        self.pairs = data.get("pairs", [])
+        self.round = data.get("round", 0)
+        self.history = data.get("history", [])
+
+    def _persist(self) -> None:
+        store.save(self.state_path, {
+            "tags": self.tags,
+            "points": self.points,
+            "pairs": self.pairs,
+            "round": self.round,
+            "history": self.history,
+        })
+
+    # -- weight space helpers --------------------------------------------
+    def _normalize(self, weight: float) -> float:
+        return (weight - self.lo) / (self.hi - self.lo)
+
+    def _denormalize(self, x: float) -> float:
+        return self.lo + x * (self.hi - self.lo)
+
+    def to_weights(self, x_vector: torch.Tensor) -> dict[str, float]:
+        return {tag: round(self._denormalize(float(v)), 2) for tag, v in zip(self.tags, x_vector)}
+
+    def is_done(self) -> bool:
+        return self.round >= self.max_rounds
+
+    # -- duel proposal -----------------------------------------------------
+    def propose_duel(self) -> tuple[dict[str, float], dict[str, float], int, int]:
+        if not self.pairs:
+            neutral = torch.full((self.dim,), self._normalize(1.0)).clamp(0.0, 1.0)
+            random_point = torch.rand(self.dim, generator=self.generator)
+            left_x, right_x = neutral, random_point
+        else:
+            X = torch.tensor(self.points)
+            self.gp.fit(X, [tuple(p) for p in self.pairs])
+
+            pool = torch.rand(self.pool_size, self.dim, generator=self.generator)
+            mean, var = self.gp.predict(pool)
+
+            incumbent_idx = int(torch.argmax(mean))
+            left_x = pool[incumbent_idx]
+
+            samples = mean + torch.sqrt(var) * torch.randn(mean.shape, generator=self.generator)
+            dist = torch.linalg.norm(pool - left_x, dim=1)
+            samples = torch.where(dist > 0.05, samples, torch.full_like(samples, -1e9))
+            challenger_idx = int(torch.argmax(samples))
+            right_x = pool[challenger_idx]
+
+        left_idx = len(self.points)
+        self.points.append(left_x.tolist())
+        right_idx = len(self.points)
+        self.points.append(right_x.tolist())
+
+        return self.to_weights(left_x), self.to_weights(right_x), left_idx, right_idx
+
+    def record_choice(self, left_idx: int, right_idx: int, winner: str) -> None:
+        win = left_idx if winner == "left" else right_idx
+        lose = right_idx if winner == "left" else left_idx
+        self.pairs.append([win, lose])
+        self.round += 1
+        self._persist()
+
+    def best_point(self) -> torch.Tensor | None:
+        """Normalized [0,1]^dim posterior-mean optimum, or None with too few observations.
+
+        Dimensions with little/no preference signal have a nearly-flat posterior
+        mean, so a fresh random-pool argmax can land on very different (but
+        near-equally-good) points from call to call — that's real model
+        uncertainty, not noise to be smoothed away. What *should* be stable is
+        showing the same answer for the same data: cache by observation count
+        and only recompute once new choices actually change the posterior.
+        """
+        if not self.pairs:
+            self._best_cache = None
+            return None
+        if self._best_cache is not None and self._best_cache[0] == len(self.pairs):
+            return self._best_cache[1]
+        X = torch.tensor(self.points)
+        self.gp.fit(X, [tuple(p) for p in self.pairs])
+        pool = torch.rand(max(self.pool_size, 1000), self.dim, generator=self.generator)
+        mean, _ = self.gp.predict(pool)
+        best_idx = int(torch.argmax(mean))
+
+        x = pool[best_idx].clone().requires_grad_(True)
+        opt = torch.optim.Adam([x], lr=0.03)
+        for _ in range(150):
+            opt.zero_grad()
+            m, _ = self.gp.predict(x.unsqueeze(0))
+            (-m.sum()).backward()
+            opt.step()
+            with torch.no_grad():
+                x.clamp_(0.0, 1.0)
+        result = x.detach()
+        self._best_cache = (len(self.pairs), result)
+        return result
+
+    def best_weights(self) -> dict[str, float]:
+        best_x = self.best_point()
+        if best_x is None:
+            return {tag: 1.0 for tag in self.tags}
+        return self.to_weights(best_x)
+
+    def landscape(self, resolution: int = 25) -> dict | None:
+        """1D posterior-mean/std slice through each tag's weight axis, holding
+        every other tag at the current best point. A cheap stand-in for a full
+        d-dimensional loss surface."""
+        best_x = self.best_point()
+        if best_x is None:
+            return None
+        xs_unit = torch.linspace(0.0, 1.0, resolution)
+        series = []
+        for i, tag in enumerate(self.tags):
+            batch = best_x.unsqueeze(0).repeat(resolution, 1)
+            batch[:, i] = xs_unit
+            mean, var = self.gp.predict(batch)
+            series.append({
+                "tag": tag,
+                "xs": [round(self._denormalize(float(v)), 3) for v in xs_unit],
+                "mean": [float(v) for v in mean],
+                "std": [float(v) for v in torch.sqrt(var)],
+                "best": round(self._denormalize(float(best_x[i])), 3),
+            })
+        return {"series": series, "best_weights": self.to_weights(best_x)}
+
+    # -- cutoff / pruning --------------------------------------------------
+    def preview_cutoff(self, threshold: float) -> dict:
+        """Which tags would be dropped if pruned now (current best weight < threshold)."""
+        weights = self.best_weights()
+        removed = [tag for tag in self.tags if weights[tag] < threshold]
+        kept = [tag for tag in self.tags if weights[tag] >= threshold]
+        return {"removed": removed, "kept": kept, "weights": weights}
+
+    def prune(self, threshold: float) -> dict:
+        """Drop tags whose current best weight is below threshold. Existing duel
+        history is kept — only the pruned tags' columns are sliced out of each
+        recorded point, so past A/B pairs over the remaining tags stay valid."""
+        preview = self.preview_cutoff(threshold)
+        removed = preview["removed"]
+        if not removed:
+            return {"removed": [], "kept": list(self.tags)}
+
+        keep_idx = [i for i, tag in enumerate(self.tags) if tag not in removed]
+        if not keep_idx:
+            # never prune to zero dims — keep the single highest-weight tag
+            best_tag = max(self.tags, key=lambda t: preview["weights"][t])
+            keep_idx = [self.tags.index(best_tag)]
+            removed = [t for i, t in enumerate(self.tags) if i not in keep_idx]
+
+        self.tags = [self.tags[i] for i in keep_idx]
+        self.dim = len(self.tags)
+        self.points = [[p[i] for i in keep_idx] for p in self.points]
+        self.gp = GPPreferenceModel(self.dim)
+        self._best_cache = None
+        self._persist()
+        return {"removed": removed, "kept": list(self.tags)}

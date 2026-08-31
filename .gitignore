@@ -1,0 +1,11 @@
+work/
+work_*/
+config.json
+cfg_*.json
+__pycache__/
+*.pyc
+node_modules/
+vendor/
+dist/
+.venv/
+data/*.sqlite3
