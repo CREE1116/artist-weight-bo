@@ -7,8 +7,8 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "build:mac": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip dir",
-    "build:win": "electron-builder --win zip"
+    "build:mac": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg dir",
+    "build:win": "electron-builder --win nsis --x64"
   },
   "devDependencies": {
     "electron": "^42.1.0",
@@ -25,7 +25,8 @@
       {"from": "data/DANBOORU_WIKI_LICENSE.md", "to": "data/DANBOORU_WIKI_LICENSE.md"}
     ],
     "publish": null,
-    "mac": {"category": "public.app-category.graphics-design", "target": ["dir"]},
-    "win": {"target": ["zip"]}
+    "mac": {"category": "public.app-category.graphics-design", "target": ["dmg", "dir"]},
+    "win": {"target": ["nsis"]},
+    "nsis": {"oneClick": false, "allowToChangeInstallationDirectory": true}
   }
 }
