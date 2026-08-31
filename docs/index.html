@@ -561,20 +561,7 @@ class BOSession{
   bestWeights(){
     const x=this.bestPoint();
     if(!x){ const out={}; this.tags.forEach(t=>out[t]=1.0); return out; }
-    return this.rescaleToMeanOne(this.toWeights(x));
-  }
-  rescaleToMeanOne(weights){
-    // NAI weights are relative emphasis, not absolute — rescale so the mean
-    // sits at 1.0 (clipped back into bounds) so the shown/copied
-    // recommendation reads as relative emphasis, not "everything got stronger".
-    const entries=Object.entries(weights);
-    if(!entries.length) return weights;
-    const mean=entries.reduce((s,[,w])=>s+w,0)/entries.length;
-    if(mean<=1e-6) return weights;
-    const scale=1/mean;
-    const out={};
-    for(const [tag,w] of entries) out[tag]=Math.round(Math.min(this.hi,Math.max(this.lo,w*scale))*100)/100;
-    return out;
+    return this.toWeights(x);
   }
   confidence(){
     // 1 - posterior std at the best point (relative to output scale). Low
@@ -602,7 +589,7 @@ class BOSession{
       const {mean,variance}=this.gp.predict(batch);
       series.push({tag:this.tags[i], xs, mean, std:variance.map(v=>Math.sqrt(Math.max(v,0))), best:Math.round(this.denormalize(bestX[i])*1000)/1000});
     }
-    return {series, bestWeights:this.rescaleToMeanOne(this.toWeights(bestX))};
+    return {series, bestWeights:this.toWeights(bestX)};
   }
   reset(){ this.points=[]; this.pairs=[]; this.round=0; this.history=[]; this._bestCache=null; }
 }

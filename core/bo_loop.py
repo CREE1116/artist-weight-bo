@@ -161,21 +161,7 @@ class BOSession:
         best_x = self.best_point()
         if best_x is None:
             return {tag: 1.0 for tag in self.tags}
-        return self._rescale_to_mean_one(self.to_weights(best_x))
-
-    def _rescale_to_mean_one(self, weights: dict[str, float]) -> dict[str, float]:
-        """NAI weights are relative emphasis, not absolute — the *ratios*
-        between tags carry the signal, not whether the whole vector drifted
-        up or down together. Rescale so the mean sits at 1.0 (clipped back
-        into weight_bounds) so the displayed/copied recommendation reads as
-        genuine relative emphasis instead of "everything got stronger"."""
-        if not weights:
-            return weights
-        mean = sum(weights.values()) / len(weights)
-        if mean <= 1e-6:
-            return weights
-        scale = 1.0 / mean
-        return {tag: round(min(self.hi, max(self.lo, w * scale)), 2) for tag, w in weights.items()}
+        return self.to_weights(best_x)
 
     def confidence(self) -> dict:
         """How much to trust the current 'best' point: 1 - posterior std at
@@ -211,4 +197,4 @@ class BOSession:
                 "std": [float(v) for v in torch.sqrt(var)],
                 "best": round(self._denormalize(float(best_x[i])), 3),
             })
-        return {"series": series, "best_weights": self._rescale_to_mean_one(self.to_weights(best_x))}
+        return {"series": series, "best_weights": self.to_weights(best_x)}
