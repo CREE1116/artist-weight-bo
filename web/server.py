@@ -49,6 +49,7 @@ class AppState:
         self.session = self._build_session(config)
         self.provider = self._build_provider(config)
         self.wiki = DanbooruWiki(WIKI_DB_PATH) if WIKI_DB_PATH.exists() else None
+        self.image_cache: list[tuple[list[float], str]] = []  # (normalized point, image filename)
 
     def _build_session(self, config: dict) -> BOSession:
         return BOSession(
@@ -75,6 +76,7 @@ class AppState:
             self.left_idx = self.right_idx = None
             self.error_message = ""
             self.best_snapshot = None
+            self.image_cache = []
         config_store.save(self.config_path, new_config)
         self.refresh_status()
 
@@ -106,6 +108,30 @@ class AppState:
                 return
         threading.Thread(target=self.advance, daemon=True).start()
 
+    def _nearest_cached(self, point: list[float]) -> str | None:
+        threshold = float(self.config.get("reuse_threshold", 0.0))
+        if threshold <= 0:
+            return None
+        best_name, best_dist = None, threshold
+        for cached_point, filename in self.image_cache:
+            dist = sum((a - b) ** 2 for a, b in zip(point, cached_point)) ** 0.5
+            if dist <= best_dist:
+                best_dist, best_name = dist, filename
+        return best_name
+
+    def _image_for(self, point: list[float], weights: dict[str, float], seed: int, filename: str) -> str:
+        """Reuse a previously generated image if its (normalized) weight vector
+        is within `reuse_threshold` of this one — same base/quality/negative
+        prompt and seed, so a near-identical weight vector renders a
+        near-identical image; skip the redundant (and costly, if live) call."""
+        cached = self._nearest_cached(point)
+        if cached is not None:
+            return cached
+        path = self.images_dir / filename
+        self.provider.generate(self.prompt_for(weights), seed, path)
+        self.image_cache.append((point, filename))
+        return filename
+
     def prompt_for(self, weights: dict[str, float]) -> str:
         tags = [ArtistTag(tag, weight) for tag, weight in weights.items()]
         cutoff = float(self.config.get("prompt_cutoff", 0.0))
@@ -132,17 +158,17 @@ class AppState:
             # propose_duel() allocates point indices — must happen inside the lock
             # so two racing advance() calls can never both read the same next index.
             left_w, right_w, left_idx, right_idx = self.session.propose_duel()
+            left_point = list(self.session.points[left_idx])
+            right_point = list(self.session.points[right_idx])
         try:
             seed = int(self.config.get("seed", 42))
-            left_path = self.images_dir / f"r{self.session.round}-left.png"
-            right_path = self.images_dir / f"r{self.session.round}-right.png"
-            self.provider.generate(self.prompt_for(left_w), seed, left_path)
+            left_name = self._image_for(left_point, left_w, seed, f"r{self.session.round}-left.png")
             with self.lock:
                 self.progress = 0.5
-            self.provider.generate(self.prompt_for(right_w), seed, right_path)
+            right_name = self._image_for(right_point, right_w, seed, f"r{self.session.round}-right.png")
             with self.lock:
-                self.left = {"weights": left_w, "image": f"/images/{left_path.name}"}
-                self.right = {"weights": right_w, "image": f"/images/{right_path.name}"}
+                self.left = {"weights": left_w, "image": f"/images/{left_name}"}
+                self.right = {"weights": right_w, "image": f"/images/{right_name}"}
                 self.left_idx, self.right_idx = left_idx, right_idx
                 self.status = "ready"
                 self.progress = 1.0
@@ -234,6 +260,7 @@ class AppState:
             self.status = "idle"
             self.error_message = ""
             self.best_snapshot = None
+            self.image_cache = []
 
     def wiki_search(self, query: str, category: str) -> list[dict]:
         if self.wiki is None or not query.strip():
@@ -284,6 +311,7 @@ def _validate_config(body: dict) -> dict:
         "artist_tags": tags,
         "weight_bounds": [lo, hi],
         "prompt_cutoff": float(body.get("prompt_cutoff", 0.0)),
+        "reuse_threshold": float(body.get("reuse_threshold", 0.03)),
         "max_rounds": int(body.get("max_rounds", 25)),
         "candidate_pool": int(body.get("candidate_pool", 300)),
         "port": int(body.get("port", 8787)),

@@ -30,6 +30,7 @@ DEFAULT_CONFIG = {
     "artist_tags": [],
     "weight_bounds": [0.2, 1.6],
     "prompt_cutoff": 0.0,
+    "reuse_threshold": 0.03,
     "max_rounds": 25,
     "candidate_pool": 300,
     "port": 8787,
