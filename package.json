@@ -18,7 +18,7 @@
     "appId": "local.artistweightbo.explorer",
     "productName": "Artist Weight BO",
     "asar": true,
-    "asarUnpack": ["core/**", "web/**", "main.py"],
+    "asarUnpack": ["core/**", "web/**", "main.py", "requirements.txt"],
     "files": ["electron/**/*", "web/**/*", "core/**/*", "main.py", "requirements.txt", "config.example.json", "README.md"],
     "extraResources": [
       {"from": "data/danbooru-wiki.sqlite3", "to": "data/danbooru-wiki.sqlite3"},
