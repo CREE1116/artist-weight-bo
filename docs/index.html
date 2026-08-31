@@ -97,8 +97,7 @@ textarea{resize:vertical;min-height:64px;line-height:1.5;}
 .toggle span.label{font-size:13px;font-weight:500;}
 
 /* ---------- duel ---------- */
-.duel-grid{display:grid;grid-template-columns:1fr;gap:14px;}
-@media(min-width:640px){.duel-grid{grid-template-columns:1fr 1fr;}}
+.duel-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
 .duel-card{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:10px;cursor:pointer;transition:.15s;position:relative;}
 .duel-card:hover{border-color:var(--accent);transform:translateY(-2px);}
 .duel-card img{width:100%;aspect-ratio:832/1216;object-fit:contain;background:#05070a;border-radius:11px;display:block;}
@@ -170,10 +169,13 @@ a{color:var(--accent)}
   .toggle .track::after{width:17px;height:17px;}
   .toggle input:checked + .track::after{left:20px;}
   .toggle span.label{font-size:14.5px;}
-  .duel-card img{max-height:32vh;}
-  .duel-card{padding:12px;border-radius:18px;}
-  .duel-card .letter{width:30px;height:30px;font-size:13px;}
-  .bar-row{font-size:12.5px;}
+  .duel-grid{gap:8px;}
+  .duel-card img{max-height:58vh;}
+  .duel-card{padding:8px;border-radius:16px;}
+  .duel-card .letter{width:24px;height:24px;font-size:11px;top:14px;left:14px;}
+  .bars{gap:5px;}
+  .bar-row{font-size:10.5px;grid-template-columns:1fr auto;gap:4px;}
+  .bar-row .name{font-size:10px;}
   .status-line{font-size:14px;}
   .empty-card{padding:32px 18px;font-size:14px;}
   .gallery-grid{grid-template-columns:repeat(auto-fill,minmax(105px,1fr));}
@@ -193,6 +195,13 @@ a{color:var(--accent)}
   }
   .bottombar .tab-btn .bi{font-size:19px;line-height:1;}
   .bottombar .tab-btn.active{background:color-mix(in srgb,var(--accent) 14%,transparent);}
+
+  /* progress bar pinned just above the bottom nav instead of inline in the flow */
+  .progress-track{
+    position:fixed; left:0; right:0; max-width:none; margin:0;
+    bottom:calc(62px + env(safe-area-inset-bottom)); z-index:31;
+    height:3px; border-radius:0;
+  }
 }
 </style>
 </head>
@@ -907,6 +916,7 @@ async function render(){
     area.innerHTML = `<div class="duel-grid">${await renderDuelCard('left',currentLeft)}${await renderDuelCard('right',currentRight)}</div>`;
     statusEl.textContent='더 마음에 드는 이미지를 클릭하세요.';
   } else if(appStatus==='generating'){
+    area.innerHTML='';
     progWrap.hidden=false; progBar.style.width=(progress*100)+'%';
     statusEl.textContent='생성 중…';
   } else if(appStatus==='done'){
