@@ -1,5 +1,4 @@
 let currentConfig = null;
-let pendingInitialWeights = {};
 
 function toast(msg) {
   const el = document.getElementById('toast');
@@ -112,17 +111,7 @@ async function loadBestPanel() {
   const data = await res.json();
   document.getElementById('best-observed').textContent = data.observed_pairs;
   const view = document.getElementById('best-weights-view');
-  const excluded = new Set(data.excluded || []);
-  view.innerHTML = data.observed_pairs ? weightBars(data.weights, excluded) : '<div style="color:var(--muted);font-size:12px;">아직 선택 기록이 없습니다 — 균등 가중치(1.0) 기준입니다.</div>';
-
-  const confPct = Math.round((data.confidence || 0) * 100);
-  document.getElementById('confidence-bar').style.width = confPct + '%';
-  document.getElementById('confidence-pct').textContent = confPct + '%';
-
-  const cutoffInput = document.getElementById('cutoff-threshold');
-  if (document.activeElement !== cutoffInput) cutoffInput.value = data.cutoff;
-  const resultEl = document.getElementById('cutoff-result');
-  resultEl.textContent = excluded.size ? `프롬프트에서 제외됨: ${[...excluded].join(', ')}` : (data.cutoff > 0 ? '컷오프 미만 태그 없음' : '');
+  view.innerHTML = data.observed_pairs ? weightBars(data.weights) : '<div style="color:var(--muted);font-size:12px;">아직 선택 기록이 없습니다 — 균등 가중치(1.0) 기준입니다.</div>';
 }
 
 document.getElementById('copy-best').addEventListener('click', async () => {
@@ -134,17 +123,6 @@ document.getElementById('copy-best').addEventListener('click', async () => {
   } catch (e) {
     toast('클립보드 접근 실패: ' + e.message);
   }
-});
-
-// ---------- Prompt cutoff (treat low-weight tags as absent, tag stays in search space) ----------
-document.getElementById('cutoff-apply').addEventListener('click', async () => {
-  const input = document.getElementById('cutoff-threshold');
-  const threshold = parseFloat(input.value);
-  if (Number.isNaN(threshold)) { document.getElementById('cutoff-result').textContent = '컷오프 값을 입력하세요.'; return; }
-  await fetch('/prompt-cutoff', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ threshold }) });
-  if (currentConfig) currentConfig.prompt_cutoff = threshold;
-  toast(`컷오프 ${threshold} 적용됨`);
-  loadBestPanel();
 });
 
 // ---------- Reset progress (keep tags/config, clear duel history) ----------
@@ -255,7 +233,6 @@ async function loadSettings() {
   const res = await fetch('/config');
   const data = await res.json();
   currentConfig = data.config;
-  pendingInitialWeights = { ...(data.config.initial_weights || {}) };
   const c = data.config;
 
   document.getElementById('provider-pill').textContent = c.use_live_novelai ? 'LIVE' : 'MOCK';
@@ -274,8 +251,6 @@ async function loadSettings() {
   document.getElementById('s-artist-tags').value = (c.artist_tags || []).join('\n');
   document.getElementById('s-weight-min').value = c.weight_bounds[0];
   document.getElementById('s-weight-max').value = c.weight_bounds[1];
-  document.getElementById('s-prompt-cutoff').value = c.prompt_cutoff || 0;
-  document.getElementById('s-weight-budget').value = c.weight_budget_per_tag ?? 1.0;
   document.getElementById('s-reuse-threshold').value = c.reuse_threshold ?? 0.03;
   document.getElementById('s-base-prompt').value = c.base_prompt || '';
   document.getElementById('s-quality-prompt').value = c.quality_prompt || '';
@@ -301,8 +276,6 @@ async function saveSettings() {
     artist_tags: document.getElementById('s-artist-tags').value.split('\n').map(s => s.trim()).filter(Boolean),
     weight_min: parseFloat(document.getElementById('s-weight-min').value),
     weight_max: parseFloat(document.getElementById('s-weight-max').value),
-    prompt_cutoff: parseFloat(document.getElementById('s-prompt-cutoff').value) || 0,
-    weight_budget_per_tag: parseFloat(document.getElementById('s-weight-budget').value) || 0,
     reuse_threshold: parseFloat(document.getElementById('s-reuse-threshold').value) || 0,
     base_prompt: document.getElementById('s-base-prompt').value,
     quality_prompt: document.getElementById('s-quality-prompt').value,
@@ -318,7 +291,6 @@ async function saveSettings() {
     seed: parseInt(document.getElementById('s-seed').value, 10),
     max_rounds: parseInt(document.getElementById('s-max-rounds').value, 10),
     candidate_pool: parseInt(document.getElementById('s-candidate-pool').value, 10),
-    initial_weights: pendingInitialWeights,
   };
   const res = await fetch('/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
   const data = await res.json();
@@ -371,7 +343,6 @@ document.getElementById('s-parse-prompt').addEventListener('click', async () => 
   const artistsAdded = mergeLines(document.getElementById('s-artist-tags'), data.artists.map(a => a.tag));
   const qualityAdded = mergeCommaList(document.getElementById('s-quality-prompt'), data.qualities.map(q => q.tag));
   const situationAdded = mergeCommaList(document.getElementById('s-base-prompt'), data.ignored.map(i => i.tag));
-  for (const a of data.artists) pendingInitialWeights[a.tag] = a.weight; // BO's first duel starts from these, not a blind 1.0
 
   const note = data.wiki_available ? '' : ' (danbooru wiki 없음 — artist: / by: 명시 태그만 인식됨)';
   const parts = [];

@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from core.bo_loop import BOSession
-from core.genome import ArtistTag, effective_tags, render_prompt
+from core.genome import ArtistTag, render_prompt
 from core.provider import MockProvider, NovelAIProvider
 from core.wiki import DanbooruWiki
 from core.prompt_parser import classify_prompt_genes
@@ -58,7 +58,6 @@ class AppState:
             work_dir=self.work_dir,
             max_rounds=int(config.get("max_rounds", 25)),
             pool_size=int(config.get("candidate_pool", 300)),
-            initial_weights=config.get("initial_weights", {}),
         )
 
     def _build_provider(self, config: dict):
@@ -135,21 +134,7 @@ class AppState:
 
     def prompt_for(self, weights: dict[str, float]) -> str:
         tags = [ArtistTag(tag, weight) for tag, weight in weights.items()]
-        cutoff = float(self.config.get("prompt_cutoff", 0.0))
-        budget = float(self.config.get("weight_budget_per_tag", 1.0))
-        return render_prompt(self.config.get("base_prompt", ""), tags, self.config.get("quality_prompt", ""), cutoff=cutoff, budget_per_tag=budget)
-
-    def display_weights(self, weights: dict[str, float]) -> dict[str, float]:
-        """What the UI should show — with the weight-budget scaling actually
-        applied, so the numbers on screen match what NovelAI actually
-        received instead of silently diverging from it. Tags excluded by the
-        prompt cutoff keep their raw (unscaled) value since they were never
-        part of the budget calculation in the first place."""
-        cutoff = float(self.config.get("prompt_cutoff", 0.0))
-        budget = float(self.config.get("weight_budget_per_tag", 1.0))
-        tags = [ArtistTag(tag, w) for tag, w in weights.items()]
-        active_map = {item.tag: item.weight for item in effective_tags(tags, cutoff, budget)}
-        return {tag: active_map.get(tag, w) for tag, w in weights.items()}
+        return render_prompt(self.config.get("base_prompt", ""), tags, self.config.get("quality_prompt", ""))
 
     def advance(self) -> None:
         with self.lock:
@@ -181,8 +166,8 @@ class AppState:
                 self.progress = 0.5
             right_name = self._image_for(right_point, right_w, seed, f"r{self.session.round}-right.png")
             with self.lock:
-                self.left = {"weights": self.display_weights(left_w), "image": f"/images/{left_name}"}
-                self.right = {"weights": self.display_weights(right_w), "image": f"/images/{right_name}"}
+                self.left = {"weights": left_w, "image": f"/images/{left_name}"}
+                self.right = {"weights": right_w, "image": f"/images/{right_name}"}
                 self.left_idx, self.right_idx = left_idx, right_idx
                 self.status = "ready"
                 self.progress = 1.0
@@ -241,19 +226,13 @@ class AppState:
 
     def best(self) -> dict:
         with self.lock:
-            raw_weights = self.session.best_weights()
-            conf = self.session.confidence()
-            cutoff = float(self.config.get("prompt_cutoff", 0.0))
-            budget = float(self.config.get("weight_budget_per_tag", 1.0))
-            prompt = self.prompt_for(raw_weights)
-            artist_prompt = render_prompt("", [ArtistTag(tag, w) for tag, w in raw_weights.items()], "", cutoff=cutoff, budget_per_tag=budget)
-            excluded = [tag for tag, w in raw_weights.items() if w < cutoff]
-            weights = self.display_weights(raw_weights)
+            weights = self.session.best_weights()
+            prompt = self.prompt_for(weights)
+            artist_prompt = render_prompt("", [ArtistTag(tag, w) for tag, w in weights.items()], "")
             observed = len(self.session.pairs)
         return {
             "weights": weights, "prompt": prompt, "artist_prompt": artist_prompt,
-            "cutoff": cutoff, "excluded": excluded, "observed_pairs": observed,
-            "confidence": conf["confidence"], "posterior_std": conf["std"],
+            "observed_pairs": observed,
         }
 
     def landscape(self) -> dict:
@@ -263,11 +242,6 @@ class AppState:
         if result is None:
             return {"ready": False, "observed_pairs": observed}
         return {"ready": True, "observed_pairs": observed, **result}
-
-    def set_prompt_cutoff(self, threshold: float) -> None:
-        with self.lock:
-            self.config["prompt_cutoff"] = threshold
-        config_store.save(self.config_path, self.config)
 
     def reset_progress(self) -> None:
         with self.lock:
@@ -327,12 +301,7 @@ def _validate_config(body: dict) -> dict:
         "variety_plus": bool(body.get("variety_plus", False)),
         "seed": int(body.get("seed", 42)),
         "artist_tags": tags,
-        "initial_weights": {
-            tag: float(w) for tag, w in dict(body.get("initial_weights", {})).items() if tag in tags
-        },
         "weight_bounds": [lo, hi],
-        "prompt_cutoff": float(body.get("prompt_cutoff", 0.0)),
-        "weight_budget_per_tag": float(body.get("weight_budget_per_tag", 1.0)),
         "reuse_threshold": float(body.get("reuse_threshold", 0.03)),
         "max_rounds": int(body.get("max_rounds", 25)),
         "candidate_pool": int(body.get("candidate_pool", 300)),
@@ -445,17 +414,6 @@ def make_handler(state: AppState):
                 length = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(length) or b"{}")
                 self._send_json(state.parse_prompt(str(body.get("text", ""))))
-                return
-            if self.path == "/prompt-cutoff":
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length) or b"{}")
-                try:
-                    threshold = float(body.get("threshold", 0))
-                except (TypeError, ValueError):
-                    self._send_json({"ok": False, "error": "invalid threshold"}, code=400)
-                    return
-                state.set_prompt_cutoff(threshold)
-                self._send_json({"ok": True, "cutoff": threshold})
                 return
             if self.path == "/start":
                 state.start()

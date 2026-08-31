@@ -19,8 +19,7 @@ class BOSession:
     """
 
     def __init__(self, tags: list[str], weight_bounds: tuple[float, float], work_dir: Path,
-                 max_rounds: int = 25, pool_size: int = 300, seed: int = 0,
-                 initial_weights: dict[str, float] | None = None):
+                 max_rounds: int = 25, pool_size: int = 300, seed: int = 0):
         self.tags = tags
         self.dim = len(tags)
         self.lo, self.hi = weight_bounds
@@ -30,13 +29,6 @@ class BOSession:
         self.state_path = work_dir / "state.json"
         self.gp = GPPreferenceModel(self.dim)
         self.generator = torch.Generator().manual_seed(seed)
-
-        # Where the very first duel's incumbent starts — user-provided weights
-        # (e.g. from a pasted prompt) beat a blind uniform 1.0 for every tag.
-        initial_weights = initial_weights or {}
-        self.initial_point = [
-            min(1.0, max(0.0, self._normalize(initial_weights.get(tag, 1.0)))) for tag in tags
-        ]
 
         self.points: list[list[float]] = []  # normalized [0,1]^dim, index-addressed
         self.pairs: list[list[int]] = []  # [win_idx, lose_idx]
@@ -162,20 +154,6 @@ class BOSession:
         if best_x is None:
             return {tag: 1.0 for tag in self.tags}
         return self.to_weights(best_x)
-
-    def confidence(self) -> dict:
-        """How much to trust the current 'best' point: 1 - posterior std at
-        that point (relative to the GP's prior/output scale). Low confidence
-        means the model hasn't pinned this down yet — most credible early on,
-        or for tags the user's choices haven't actually discriminated between.
-        """
-        best_x = self.best_point()
-        if best_x is None:
-            return {"confidence": 0.0, "std": 1.0, "observed_pairs": 0}
-        _, var = self.gp.predict(best_x.unsqueeze(0))
-        std = float(torch.sqrt(var[0]))
-        conf = max(0.0, 1.0 - min(1.0, std / (self.gp.outputscale ** 0.5)))
-        return {"confidence": conf, "std": std, "observed_pairs": len(self.pairs)}
 
     def landscape(self, resolution: int = 25) -> dict | None:
         """1D posterior-mean/std slice through each tag's weight axis, holding

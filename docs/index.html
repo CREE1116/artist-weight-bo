@@ -234,22 +234,7 @@ a{color:var(--accent)}
     <div class="panel" style="margin-top:20px;">
       <div class="panel-head"><h2>현재 최적 가중치</h2><button class="ghost" id="copyBestBtn">📋 작가 태그 복사</button></div>
       <p class="hint" style="margin:-2px 0 10px;">지금까지 선택 <span id="bestObserved" class="tabular">0</span>개 기준 GP posterior 추정치</p>
-      <div class="row" style="align-items:center;gap:8px;margin-bottom:10px;">
-        <span class="hint" style="flex-shrink:0;">신뢰도</span>
-        <div class="bar-track" style="flex:1;max-width:160px;margin:0;"><i id="confidenceBar" style="width:0%;"></i></div>
-        <span id="confidencePct" class="tabular hint">0%</span>
-      </div>
       <div id="bestWeightsView"></div>
-      <hr>
-      <div class="row" style="align-items:flex-end;">
-        <div class="field" style="flex:2;">
-          <label>컷오프</label>
-          <input type="number" id="cutoffInput" step="0.05" placeholder="0 = 끔">
-          <span class="hint">이 값 미만 태그는 프롬프트에서 없는 것으로 취급 (탐색 대상 유지)</span>
-        </div>
-        <button class="ghost" id="cutoffApplyBtn" style="margin-bottom:20px;">적용</button>
-      </div>
-      <div class="msg" id="cutoffResult"></div>
     </div>
   </section>
 
@@ -349,9 +334,6 @@ a{color:var(--accent)}
       <div class="row">
         <div class="field"><label>Max rounds</label><input type="number" id="s-maxrounds"></div>
         <div class="field"><label>Candidate pool</label><input type="number" id="s-pool"></div>
-      </div>
-      <div class="field"><label>태그당 가중치 예산</label><input type="number" id="s-weight-budget" step="0.05" min="0">
-        <span class="hint">활성 태그 수 × 이 값을 넘으면 전체 비례해서 낮춤 — 여러 작가를 동시에 세게 섞어서 그림 깨지는 것 방지 (0 = 끔)</span>
       </div>
       <div class="field"><label>이미지 재사용 임계값</label><input type="number" id="s-reuse" step="0.01" min="0">
         <span class="hint">정규화 가중치 벡터 거리가 이 값 이하면 재생성 없이 기존 이미지 재사용 (0 = 끔)</span>
@@ -482,17 +464,13 @@ function gaussianRandom(){ // Box-Muller
    1. BO SESSION — mirrors core/bo_loop.py
    ============================================================ */
 class BOSession{
-  constructor(tags, weightBounds, maxRounds, poolSize, initialWeights){
+  constructor(tags, weightBounds, maxRounds, poolSize){
     this.tags=tags; this.dim=tags.length;
     this.lo=weightBounds[0]; this.hi=weightBounds[1];
     this.maxRounds=maxRounds; this.poolSize=poolSize;
     this.gp=new GPPreferenceModel(this.dim);
     this.points=[]; this.pairs=[]; this.round=0; this.history=[];
     this._bestCache=null;
-    // The very first duel's incumbent starts here — user-provided weights
-    // (e.g. from a pasted prompt) beat a blind uniform 1.0 for every tag.
-    initialWeights=initialWeights||{};
-    this.initialPoint=tags.map(t=>Math.min(1,Math.max(0,this.normalize(initialWeights[t]??1.0))));
   }
   normalize(w){ return (w-this.lo)/(this.hi-this.lo); }
   denormalize(x){ return this.lo + x*(this.hi-this.lo); }
@@ -563,17 +541,6 @@ class BOSession{
     if(!x){ const out={}; this.tags.forEach(t=>out[t]=1.0); return out; }
     return this.toWeights(x);
   }
-  confidence(){
-    // 1 - posterior std at the best point (relative to output scale). Low
-    // confidence means the model hasn't pinned this down yet.
-    const x=this.bestPoint();
-    if(!x) return {confidence:0, std:1, observedPairs:0};
-    this.gp.fit(this.points, this.pairs);
-    const {variance}=this.gp.predict([x]);
-    const std=Math.sqrt(Math.max(variance[0],0));
-    const conf=Math.max(0, 1 - Math.min(1, std/Math.sqrt(this.gp.outputscale)));
-    return {confidence:conf, std, observedPairs:this.pairs.length};
-  }
   landscape(resolution=21){
     const bestX=this.bestPoint();
     if(!bestX) return null;
@@ -599,39 +566,9 @@ class BOSession{
       wiki verification — everything comma-separated is a candidate
       artist tag when importing).
    ============================================================ */
-function effectiveTags(artistTags, cutoff, budgetPerTag){
-  cutoff = cutoff||0;
-  budgetPerTag = budgetPerTag||0;
-  let active = artistTags.filter(a=>a.weight>=cutoff);
-  // Mixing many artist tags at high weight simultaneously is a known way to
-  // get visually broken NovelAI output — cap the *sum* of active weights at
-  // budgetPerTag * activeCount and scale everyone down proportionally if
-  // over, instead of letting each tag push toward the max independently.
-  if(budgetPerTag>0 && active.length){
-    const total=active.reduce((s,a)=>s+a.weight,0);
-    const budget=budgetPerTag*active.length;
-    if(total>budget){
-      const scale=budget/total;
-      active=active.map(a=>({tag:a.tag, weight:Math.round(a.weight*scale*100)/100}));
-    }
-  }
-  return active;
-}
-function displayWeights(weights){
-  // What the UI should show — with the weight-budget scaling actually
-  // applied, so numbers on screen match what NovelAI actually received
-  // instead of silently diverging from it.
-  const cutoff=state.config.promptCutoff||0, budget=state.config.weightBudgetPerTag||0;
-  const active=effectiveTags(Object.entries(weights).map(([tag,weight])=>({tag,weight})), cutoff, budget);
-  const activeMap=Object.fromEntries(active.map(a=>[a.tag,a.weight]));
-  const out={};
-  for(const [tag,w] of Object.entries(weights)) out[tag]=activeMap[tag]??w;
-  return out;
-}
-function renderPrompt(basePrompt, artistTags, qualityPrompt, cutoff, budgetPerTag){
-  const active = effectiveTags(artistTags, cutoff, budgetPerTag);
+function renderPrompt(basePrompt, artistTags, qualityPrompt){
   const parts=[];
-  for(const {tag,weight} of active){
+  for(const {tag,weight} of artistTags){
     const t = tag.startsWith('artist:') ? tag : 'artist:'+tag;
     if(Math.abs(weight-1.0)<0.005) parts.push(t);
     else parts.push(weight.toFixed(2)+'::'+t+'::');
@@ -725,7 +662,7 @@ const DEFAULT_CONFIG={
   negativePrompt:'worst quality, low quality, blurry',
   width:832, height:1216, steps:28, scale:5.0, cfgRescale:0.0,
   sampler:'k_euler_ancestral', noiseSchedule:'karras', variety:false, seed:42,
-  artistTags:[], initialWeights:{}, weightBounds:[0.2,1.6], promptCutoff:0.0, weightBudgetPerTag:1.0, reuseThreshold:0.03,
+  artistTags:[], weightBounds:[0.2,1.6], reuseThreshold:0.03,
   maxRounds:25, candidatePool:250,
 };
 
@@ -808,7 +745,7 @@ function mockImage(prompt, seed){
    5. APP STATE / CONTROLLER
    ============================================================ */
 const state = loadState();
-const session = new BOSession(state.config.artistTags, state.config.weightBounds, state.config.maxRounds, state.config.candidatePool, state.config.initialWeights);
+const session = new BOSession(state.config.artistTags, state.config.weightBounds, state.config.maxRounds, state.config.candidatePool);
 session.points=state.points; session.pairs=state.pairs; session.round=state.round; session.history=state.history;
 
 let appStatus='idle'; // needs_config | idle | generating | ready | done | error
@@ -843,7 +780,7 @@ function nearestCachedImg(point){
 async function imageFor(point, weights, seed){
   const cached=nearestCachedImg(point);
   if(cached!==null) return cached;
-  const blob=await generateImage(renderPrompt(state.config.basePrompt, Object.entries(weights).map(([tag,weight])=>({tag,weight})), state.config.qualityPrompt, state.config.promptCutoff, state.config.weightBudgetPerTag), seed);
+  const blob=await generateImage(renderPrompt(state.config.basePrompt, Object.entries(weights).map(([tag,weight])=>({tag,weight})), state.config.qualityPrompt), seed);
   const id='img-'+(state.nextImgId++);
   await idbPut(id, blob);
   state.imageCache.push([point, id]);
@@ -869,8 +806,8 @@ async function advance(){
     const leftImgId=await imageFor(leftPoint, leftWeights, seed);
     progress=0.5; render();
     const rightImgId=await imageFor(rightPoint, rightWeights, seed);
-    currentLeft={weights:displayWeights(leftWeights), imgId:leftImgId};
-    currentRight={weights:displayWeights(rightWeights), imgId:rightImgId};
+    currentLeft={weights:leftWeights, imgId:leftImgId};
+    currentRight={weights:rightWeights, imgId:rightImgId};
     currentLeftIdx=leftIdx; currentRightIdx=rightIdx;
     appStatus='ready'; progress=1;
     saveState();
@@ -976,20 +913,9 @@ function renderBestPanel(){
   const weights=session.bestWeights();
   const observed=session.pairs.length;
   document.getElementById('bestObserved').textContent=observed;
-  const cutoff=state.config.promptCutoff||0;
-  const excluded=new Set(Object.entries(weights).filter(([,w])=>w<cutoff).map(([t])=>t));
   document.getElementById('bestWeightsView').innerHTML = observed
-    ? weightBarsHtml(displayWeights(weights), excluded)
+    ? weightBarsHtml(weights)
     : '<p class="hint">아직 선택 기록이 없습니다 — 균등 가중치(1.0) 기준입니다.</p>';
-  const cutoffInput=document.getElementById('cutoffInput');
-  if(document.activeElement!==cutoffInput) cutoffInput.value=cutoff;
-  const resultEl=document.getElementById('cutoffResult');
-  resultEl.textContent = excluded.size ? ('프롬프트에서 제외됨: '+[...excluded].join(', ')) : (cutoff>0 ? '컷오프 미만 태그 없음' : '');
-
-  const conf=session.confidence();
-  const pct=Math.round(conf.confidence*100);
-  document.getElementById('confidenceBar').style.width=pct+'%';
-  document.getElementById('confidencePct').textContent=pct+'%';
 }
 
 async function renderGallery(){
@@ -1044,10 +970,8 @@ function renderLandscape(){
 /* ============================================================
    7. SETTINGS FORM
    ============================================================ */
-let pendingInitialWeights={};
 function loadSettingsForm(){
   const c=state.config;
-  pendingInitialWeights={...(c.initialWeights||{})};
   document.getElementById('s-token').value=c.novelaiToken;
   document.getElementById('s-live').checked=c.useLive;
   document.getElementById('s-model').value=c.model;
@@ -1069,7 +993,6 @@ function loadSettingsForm(){
   document.getElementById('s-seed').value=c.seed;
   document.getElementById('s-maxrounds').value=c.maxRounds;
   document.getElementById('s-pool').value=c.candidatePool;
-  document.getElementById('s-weight-budget').value=c.weightBudgetPerTag??1.0;
   document.getElementById('s-reuse').value=c.reuseThreshold;
 }
 function saveSettingsForm(){
@@ -1078,7 +1001,6 @@ function saveSettingsForm(){
     useLive: document.getElementById('s-live').checked,
     model: document.getElementById('s-model').value,
     artistTags: document.getElementById('s-tags').value.split('\n').map(s=>s.trim()).filter(Boolean),
-    initialWeights: pendingInitialWeights,
     weightBounds: [parseFloat(document.getElementById('s-wmin').value), parseFloat(document.getElementById('s-wmax').value)],
     basePrompt: document.getElementById('s-base').value,
     qualityPrompt: document.getElementById('s-quality').value,
@@ -1094,8 +1016,6 @@ function saveSettingsForm(){
     seed: parseInt(document.getElementById('s-seed').value,10),
     maxRounds: parseInt(document.getElementById('s-maxrounds').value,10),
     candidatePool: parseInt(document.getElementById('s-pool').value,10),
-    promptCutoff: state.config.promptCutoff||0,
-    weightBudgetPerTag: parseFloat(document.getElementById('s-weight-budget').value)||0,
     reuseThreshold: parseFloat(document.getElementById('s-reuse').value)||0,
   };
   const msg=document.getElementById('s-msg');
@@ -1108,7 +1028,6 @@ function saveSettingsForm(){
     session.tags=newConfig.artistTags; session.dim=newConfig.artistTags.length;
     session.lo=newConfig.weightBounds[0]; session.hi=newConfig.weightBounds[1];
     session.gp=new GPPreferenceModel(session.dim);
-    session.initialPoint=session.tags.map(t=>Math.min(1,Math.max(0,session.normalize(newConfig.initialWeights[t]??1.0))));
     session.reset();
     currentLeft=currentRight=null; currentLeftIdx=currentRightIdx=null;
     state.imageCache=[]; idbClear();
@@ -1131,7 +1050,7 @@ function parsePromptImport(){
   const existing=box.value.split('\n').map(s=>s.trim()).filter(Boolean);
   const keys=new Set(existing.map(s=>s.toLowerCase()));
   let added=0;
-  for(const {tag,weight} of found){ if(!keys.has(tag.toLowerCase())){ existing.push(tag); keys.add(tag.toLowerCase()); added++; } pendingInitialWeights[tag]=weight; }
+  for(const {tag} of found){ if(!keys.has(tag.toLowerCase())){ existing.push(tag); keys.add(tag.toLowerCase()); added++; } }
   box.value=existing.join('\n');
   resultEl.className='msg ok';
   resultEl.textContent = found.length ? `${found.length}개 인식, ${added}개 추가됨: ${found.map(f=>f.tag).join(', ')}` : '인식된 항목이 없습니다.';
@@ -1140,20 +1059,10 @@ function parsePromptImport(){
 
 async function copyBestArtistPrompt(){
   const weights=session.bestWeights();
-  const cutoff=state.config.promptCutoff||0;
-  const prompt=renderPrompt('', Object.entries(weights).map(([tag,weight])=>({tag,weight})), '', cutoff, state.config.weightBudgetPerTag);
+  const prompt=renderPrompt('', Object.entries(weights).map(([tag,weight])=>({tag,weight})), '');
   if(!session.pairs.length){ toast('아직 선택 기록이 없습니다.'); return; }
   try{ await navigator.clipboard.writeText(prompt); toast('작가 태그 복사됨 ('+session.pairs.length+'개 선택 기반)'); }
   catch(e){ toast('클립보드 접근 실패: '+e.message); }
-}
-
-function applyCutoff(){
-  const v=parseFloat(document.getElementById('cutoffInput').value);
-  if(Number.isNaN(v)){ document.getElementById('cutoffResult').textContent='컷오프 값을 입력하세요.'; return; }
-  state.config.promptCutoff=v;
-  saveState();
-  toast('컷오프 '+v+' 적용됨');
-  renderBestPanel();
 }
 
 /* ============================================================
@@ -1176,7 +1085,6 @@ document.getElementById('bottomTabs').addEventListener('click', e=>{
   switchTab(btn.dataset.view);
 });
 document.getElementById('copyBestBtn').addEventListener('click', copyBestArtistPrompt);
-document.getElementById('cutoffApplyBtn').addEventListener('click', applyCutoff);
 document.getElementById('s-save').addEventListener('click', saveSettingsForm);
 document.getElementById('s-parseBtn').addEventListener('click', parsePromptImport);
 document.getElementById('s-reset').addEventListener('click', resetProgress);
