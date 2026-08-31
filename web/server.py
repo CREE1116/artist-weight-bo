@@ -136,7 +136,8 @@ class AppState:
     def prompt_for(self, weights: dict[str, float]) -> str:
         tags = [ArtistTag(tag, weight) for tag, weight in weights.items()]
         cutoff = float(self.config.get("prompt_cutoff", 0.0))
-        return render_prompt(self.config.get("base_prompt", ""), tags, self.config.get("quality_prompt", ""), cutoff=cutoff)
+        budget = float(self.config.get("weight_budget_per_tag", 1.0))
+        return render_prompt(self.config.get("base_prompt", ""), tags, self.config.get("quality_prompt", ""), cutoff=cutoff, budget_per_tag=budget)
 
     def advance(self) -> None:
         with self.lock:
@@ -231,8 +232,9 @@ class AppState:
             weights = self.session.best_weights()
             conf = self.session.confidence()
             cutoff = float(self.config.get("prompt_cutoff", 0.0))
+            budget = float(self.config.get("weight_budget_per_tag", 1.0))
             prompt = self.prompt_for(weights)
-            artist_prompt = render_prompt("", [ArtistTag(tag, w) for tag, w in weights.items()], "", cutoff=cutoff)
+            artist_prompt = render_prompt("", [ArtistTag(tag, w) for tag, w in weights.items()], "", cutoff=cutoff, budget_per_tag=budget)
             excluded = [tag for tag, w in weights.items() if w < cutoff]
             observed = len(self.session.pairs)
         return {
@@ -317,6 +319,7 @@ def _validate_config(body: dict) -> dict:
         },
         "weight_bounds": [lo, hi],
         "prompt_cutoff": float(body.get("prompt_cutoff", 0.0)),
+        "weight_budget_per_tag": float(body.get("weight_budget_per_tag", 1.0)),
         "reuse_threshold": float(body.get("reuse_threshold", 0.03)),
         "max_rounds": int(body.get("max_rounds", 25)),
         "candidate_pool": int(body.get("candidate_pool", 300)),

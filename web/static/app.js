@@ -275,6 +275,7 @@ async function loadSettings() {
   document.getElementById('s-weight-min').value = c.weight_bounds[0];
   document.getElementById('s-weight-max').value = c.weight_bounds[1];
   document.getElementById('s-prompt-cutoff').value = c.prompt_cutoff || 0;
+  document.getElementById('s-weight-budget').value = c.weight_budget_per_tag ?? 1.0;
   document.getElementById('s-reuse-threshold').value = c.reuse_threshold ?? 0.03;
   document.getElementById('s-base-prompt').value = c.base_prompt || '';
   document.getElementById('s-quality-prompt').value = c.quality_prompt || '';
@@ -301,6 +302,7 @@ async function saveSettings() {
     weight_min: parseFloat(document.getElementById('s-weight-min').value),
     weight_max: parseFloat(document.getElementById('s-weight-max').value),
     prompt_cutoff: parseFloat(document.getElementById('s-prompt-cutoff').value) || 0,
+    weight_budget_per_tag: parseFloat(document.getElementById('s-weight-budget').value) || 0,
     reuse_threshold: parseFloat(document.getElementById('s-reuse-threshold').value) || 0,
     base_prompt: document.getElementById('s-base-prompt').value,
     quality_prompt: document.getElementById('s-quality-prompt').value,

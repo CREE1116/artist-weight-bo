@@ -350,6 +350,9 @@ a{color:var(--accent)}
         <div class="field"><label>Max rounds</label><input type="number" id="s-maxrounds"></div>
         <div class="field"><label>Candidate pool</label><input type="number" id="s-pool"></div>
       </div>
+      <div class="field"><label>태그당 가중치 예산</label><input type="number" id="s-weight-budget" step="0.05" min="0">
+        <span class="hint">활성 태그 수 × 이 값을 넘으면 전체 비례해서 낮춤 — 여러 작가를 동시에 세게 섞어서 그림 깨지는 것 방지 (0 = 끔)</span>
+      </div>
       <div class="field"><label>이미지 재사용 임계값</label><input type="number" id="s-reuse" step="0.01" min="0">
         <span class="hint">정규화 가중치 벡터 거리가 이 값 이하면 재생성 없이 기존 이미지 재사용 (0 = 끔)</span>
       </div>
@@ -609,11 +612,24 @@ class BOSession{
       wiki verification — everything comma-separated is a candidate
       artist tag when importing).
    ============================================================ */
-function renderPrompt(basePrompt, artistTags, qualityPrompt, cutoff){
+function renderPrompt(basePrompt, artistTags, qualityPrompt, cutoff, budgetPerTag){
   cutoff = cutoff||0;
+  budgetPerTag = budgetPerTag||0;
+  let active = artistTags.filter(a=>a.weight>=cutoff);
+  // Mixing many artist tags at high weight simultaneously is a known way to
+  // get visually broken NovelAI output — cap the *sum* of active weights at
+  // budgetPerTag * activeCount and scale everyone down proportionally if
+  // over, instead of letting each tag push toward the max independently.
+  if(budgetPerTag>0 && active.length){
+    const total=active.reduce((s,a)=>s+a.weight,0);
+    const budget=budgetPerTag*active.length;
+    if(total>budget){
+      const scale=budget/total;
+      active=active.map(a=>({tag:a.tag, weight:a.weight*scale}));
+    }
+  }
   const parts=[];
-  for(const {tag,weight} of artistTags){
-    if(weight<cutoff) continue;
+  for(const {tag,weight} of active){
     const t = tag.startsWith('artist:') ? tag : 'artist:'+tag;
     if(Math.abs(weight-1.0)<0.005) parts.push(t);
     else parts.push(weight.toFixed(2)+'::'+t+'::');
@@ -707,7 +723,7 @@ const DEFAULT_CONFIG={
   negativePrompt:'worst quality, low quality, blurry',
   width:832, height:1216, steps:28, scale:5.0, cfgRescale:0.0,
   sampler:'k_euler_ancestral', noiseSchedule:'karras', variety:false, seed:42,
-  artistTags:[], initialWeights:{}, weightBounds:[0.2,1.6], promptCutoff:0.0, reuseThreshold:0.03,
+  artistTags:[], initialWeights:{}, weightBounds:[0.2,1.6], promptCutoff:0.0, weightBudgetPerTag:1.0, reuseThreshold:0.03,
   maxRounds:25, candidatePool:250,
 };
 
@@ -825,7 +841,7 @@ function nearestCachedImg(point){
 async function imageFor(point, weights, seed){
   const cached=nearestCachedImg(point);
   if(cached!==null) return cached;
-  const blob=await generateImage(renderPrompt(state.config.basePrompt, Object.entries(weights).map(([tag,weight])=>({tag,weight})), state.config.qualityPrompt, state.config.promptCutoff), seed);
+  const blob=await generateImage(renderPrompt(state.config.basePrompt, Object.entries(weights).map(([tag,weight])=>({tag,weight})), state.config.qualityPrompt, state.config.promptCutoff, state.config.weightBudgetPerTag), seed);
   const id='img-'+(state.nextImgId++);
   await idbPut(id, blob);
   state.imageCache.push([point, id]);
@@ -1051,6 +1067,7 @@ function loadSettingsForm(){
   document.getElementById('s-seed').value=c.seed;
   document.getElementById('s-maxrounds').value=c.maxRounds;
   document.getElementById('s-pool').value=c.candidatePool;
+  document.getElementById('s-weight-budget').value=c.weightBudgetPerTag??1.0;
   document.getElementById('s-reuse').value=c.reuseThreshold;
 }
 function saveSettingsForm(){
@@ -1076,6 +1093,7 @@ function saveSettingsForm(){
     maxRounds: parseInt(document.getElementById('s-maxrounds').value,10),
     candidatePool: parseInt(document.getElementById('s-pool').value,10),
     promptCutoff: state.config.promptCutoff||0,
+    weightBudgetPerTag: parseFloat(document.getElementById('s-weight-budget').value)||0,
     reuseThreshold: parseFloat(document.getElementById('s-reuse').value)||0,
   };
   const msg=document.getElementById('s-msg');
@@ -1121,7 +1139,7 @@ function parsePromptImport(){
 async function copyBestArtistPrompt(){
   const weights=session.bestWeights();
   const cutoff=state.config.promptCutoff||0;
-  const prompt=renderPrompt('', Object.entries(weights).map(([tag,weight])=>({tag,weight})), '', cutoff);
+  const prompt=renderPrompt('', Object.entries(weights).map(([tag,weight])=>({tag,weight})), '', cutoff, state.config.weightBudgetPerTag);
   if(!session.pairs.length){ toast('아직 선택 기록이 없습니다.'); return; }
   try{ await navigator.clipboard.writeText(prompt); toast('작가 태그 복사됨 ('+session.pairs.length+'개 선택 기반)'); }
   catch(e){ toast('클립보드 접근 실패: '+e.message); }

@@ -31,6 +31,7 @@ DEFAULT_CONFIG = {
     "initial_weights": {},
     "weight_bounds": [0.2, 1.6],
     "prompt_cutoff": 0.0,
+    "weight_budget_per_tag": 1.0,
     "reuse_threshold": 0.03,
     "max_rounds": 25,
     "candidate_pool": 300,
