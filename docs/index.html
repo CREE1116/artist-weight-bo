@@ -490,6 +490,15 @@ function gaussianRandom(){ // Box-Muller
   return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
 }
 
+function mulberry32(seed){
+  return function(){
+    seed|=0; seed=seed+0x6D2B79F5|0;
+    let t=Math.imul(seed^seed>>>15,1|seed);
+    t=t+Math.imul(t^t>>>7,61|t)^t;
+    return ((t^t>>>14)>>>0)/4294967296;
+  };
+}
+
 /* ============================================================
    1. BO SESSION — mirrors core/bo_loop.py
    ============================================================ */
@@ -499,6 +508,11 @@ class BOSession{
     this.lo=weightBounds[0]; this.hi=weightBounds[1];
     this.maxRounds=maxRounds; this.poolSize=poolSize;
     this.gp=new GPPreferenceModel(this.dim);
+    // Seeded (not Math.random()) so bestPoint()'s random pool — and thus the
+    // displayed "best weights" — comes out identical on every page reload
+    // given the same persisted points/pairs, instead of jumping between
+    // near-equally-good local optima each time the pool is freshly sampled.
+    this._rng=mulberry32(1);
     this.points=[]; this.pairs=[]; this.round=0; this.history=[];
     this._bestCache=null;
   }
@@ -506,7 +520,7 @@ class BOSession{
   denormalize(x){ return this.lo + x*(this.hi-this.lo); }
   toWeights(x){ const out={}; this.tags.forEach((t,i)=>out[t]=Math.round(this.denormalize(x[i])*100)/100); return out; }
   isDone(){ return this.round >= this.maxRounds; }
-  randPoint(){ const p=[]; for(let i=0;i<this.dim;i++) p.push(Math.random()); return p; }
+  randPoint(){ const p=[]; for(let i=0;i<this.dim;i++) p.push(this._rng()); return p; }
   proposeDuel(){
     let leftX, rightX;
     if(this.pairs.length===0){
