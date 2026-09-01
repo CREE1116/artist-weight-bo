@@ -143,7 +143,8 @@ document.getElementById('s-reset').addEventListener('click', async () => {
 let galleryItems = [];
 
 function artistPromptFromWeights(weights) {
-  return Object.entries(weights).map(([tag, w]) => {
+  const cutoff = (currentConfig && currentConfig.weight_cutoff) || 0;
+  return Object.entries(weights).filter(([, w]) => w > cutoff).map(([tag, w]) => {
     const t = tag.startsWith('artist:') ? tag : 'artist:' + tag;
     return Math.abs(w - 1.0) < 0.005 ? t : `${w.toFixed(2)}:: ${t} ::`;
   }).join(', ');
@@ -294,6 +295,7 @@ async function loadSettings() {
   document.getElementById('s-artist-tags').value = (c.artist_tags || []).join('\n');
   document.getElementById('s-weight-min').value = c.weight_bounds[0];
   document.getElementById('s-weight-max').value = c.weight_bounds[1];
+  document.getElementById('s-weight-cutoff').value = c.weight_cutoff ?? 0;
   document.getElementById('s-reuse-threshold').value = c.reuse_threshold ?? 0.03;
   document.getElementById('s-subject-prompt').value = c.subject_prompt || '';
   document.getElementById('s-scene-prompt').value = c.scene_prompt || '';
@@ -320,6 +322,7 @@ async function saveSettings() {
     artist_tags: document.getElementById('s-artist-tags').value.split('\n').map(s => s.trim()).filter(Boolean),
     weight_min: parseFloat(document.getElementById('s-weight-min').value),
     weight_max: parseFloat(document.getElementById('s-weight-max').value),
+    weight_cutoff: parseFloat(document.getElementById('s-weight-cutoff').value) || 0,
     reuse_threshold: parseFloat(document.getElementById('s-reuse-threshold').value) || 0,
     subject_prompt: document.getElementById('s-subject-prompt').value,
     scene_prompt: document.getElementById('s-scene-prompt').value,

@@ -137,6 +137,7 @@ class AppState:
         return render_prompt(
             self.config.get("subject_prompt", ""), tags,
             self.config.get("scene_prompt", ""), self.config.get("quality_prompt", ""),
+            weight_cutoff=float(self.config.get("weight_cutoff", 0.0)),
         )
 
     def advance(self) -> None:
@@ -232,7 +233,10 @@ class AppState:
             weights = self.session.best_weights()
             conf = self.session.confidence()
             prompt = self.prompt_for(weights)
-            artist_prompt = render_prompt("", [ArtistTag(tag, w) for tag, w in weights.items()], "")
+            artist_prompt = render_prompt(
+                "", [ArtistTag(tag, w) for tag, w in weights.items()], "",
+                weight_cutoff=float(self.config.get("weight_cutoff", 0.0)),
+            )
             observed = len(self.session.pairs)
         return {
             "weights": weights, "prompt": prompt, "artist_prompt": artist_prompt,
@@ -308,6 +312,7 @@ def _validate_config(body: dict) -> dict:
         "seed": int(body.get("seed", 42)),
         "artist_tags": tags,
         "weight_bounds": [lo, hi],
+        "weight_cutoff": float(body.get("weight_cutoff", 0.0)),
         "reuse_threshold": float(body.get("reuse_threshold", 0.03)),
         "max_rounds": int(body.get("max_rounds", 25)),
         "candidate_pool": int(body.get("candidate_pool", 300)),

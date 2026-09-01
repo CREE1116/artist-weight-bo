@@ -30,6 +30,7 @@ DEFAULT_CONFIG = {
     "seed": 42,
     "artist_tags": [],
     "weight_bounds": [0.2, 1.6],
+    "weight_cutoff": 0.0,
     "reuse_threshold": 0.03,
     "max_rounds": 25,
     "candidate_pool": 300,
