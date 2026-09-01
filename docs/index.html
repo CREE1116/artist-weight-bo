@@ -719,10 +719,10 @@ const DEFAULT_CONFIG={
   novelaiToken:'', useLive:false, model:'nai-diffusion-4-5-full',
   subjectPrompt:'1girl, solo', scenePrompt:'looking at viewer', qualityPrompt:'very aesthetic, masterpiece, no text',
   negativePrompt:'worst quality, low quality, blurry',
-  width:832, height:1216, steps:28, scale:5.0, cfgRescale:0.0,
+  width:832, height:1216, steps:28, scale:7.0, cfgRescale:0.6,
   sampler:'k_euler_ancestral', noiseSchedule:'karras', variety:false, seed:42,
-  artistTags:[], weightBounds:[0.2,1.6], weightCutoff:0, reuseThreshold:0.03,
-  maxRounds:25, candidatePool:250,
+  artistTags:[], weightBounds:[0.2,1.6], weightCutoff:0.2, reuseThreshold:0.03,
+  maxRounds:100, candidatePool:250,
 };
 
 function loadState(){

@@ -56,7 +56,7 @@ class AppState:
             tags=config.get("artist_tags", []),
             weight_bounds=tuple(config.get("weight_bounds", [0.2, 1.6])),
             work_dir=self.work_dir,
-            max_rounds=int(config.get("max_rounds", 25)),
+            max_rounds=int(config.get("max_rounds", 100)),
             pool_size=int(config.get("candidate_pool", 300)),
         )
 
@@ -137,7 +137,7 @@ class AppState:
         return render_prompt(
             self.config.get("subject_prompt", ""), tags,
             self.config.get("scene_prompt", ""), self.config.get("quality_prompt", ""),
-            weight_cutoff=float(self.config.get("weight_cutoff", 0.0)),
+            weight_cutoff=float(self.config.get("weight_cutoff", 0.2)),
         )
 
     def advance(self) -> None:
@@ -235,7 +235,7 @@ class AppState:
             prompt = self.prompt_for(weights)
             artist_prompt = render_prompt(
                 "", [ArtistTag(tag, w) for tag, w in weights.items()], "",
-                weight_cutoff=float(self.config.get("weight_cutoff", 0.0)),
+                weight_cutoff=float(self.config.get("weight_cutoff", 0.2)),
             )
             observed = len(self.session.pairs)
         return {
@@ -304,17 +304,17 @@ def _validate_config(body: dict) -> dict:
         "width": int(body.get("width", 832)),
         "height": int(body.get("height", 1216)),
         "steps": int(body.get("steps", 28)),
-        "scale": float(body.get("scale", 5.0)),
-        "cfg_rescale": float(body.get("cfg_rescale", 0.0)),
+        "scale": float(body.get("scale", 7.0)),
+        "cfg_rescale": float(body.get("cfg_rescale", 0.6)),
         "sampler": body.get("sampler", "k_euler_ancestral"),
         "noise_schedule": body.get("noise_schedule", "karras"),
         "variety_plus": bool(body.get("variety_plus", False)),
         "seed": int(body.get("seed", 42)),
         "artist_tags": tags,
         "weight_bounds": [lo, hi],
-        "weight_cutoff": float(body.get("weight_cutoff", 0.0)),
+        "weight_cutoff": float(body.get("weight_cutoff", 0.2)),
         "reuse_threshold": float(body.get("reuse_threshold", 0.03)),
-        "max_rounds": int(body.get("max_rounds", 25)),
+        "max_rounds": int(body.get("max_rounds", 100)),
         "candidate_pool": int(body.get("candidate_pool", 300)),
         "port": int(body.get("port", 8787)),
     }

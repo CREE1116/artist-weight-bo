@@ -19,7 +19,7 @@ class BOSession:
     """
 
     def __init__(self, tags: list[str], weight_bounds: tuple[float, float], work_dir: Path,
-                 max_rounds: int = 25, pool_size: int = 300, seed: int = 0):
+                 max_rounds: int = 100, pool_size: int = 300, seed: int = 0):
         self.tags = tags
         self.dim = len(tags)
         self.lo, self.hi = weight_bounds
