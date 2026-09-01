@@ -26,6 +26,10 @@
       <p class="kicker">A/B PREFERENCE</p>
       <h1>어느 쪽이 더 마음에 드나요?</h1>
       <p>클릭한 쪽이 이깁니다. 매 라운드 같은 seed로, 작가 태그 <b>가중치</b>만 바뀝니다.</p>
+      <label class="inline" style="gap:6px;font-size:12px;color:var(--muted);cursor:pointer;">
+        <input type="checkbox" id="hide-weights-toggle" onchange="toggleWeightVisibility()" />
+        가중치 숫자 숨기기 (그림만 보고 고르기)
+      </label>
     </div>
     <div id="duel-content"></div>
     <div class="progress" id="duel-progress" hidden><i id="duel-progress-bar" style="width:0%"></i></div>

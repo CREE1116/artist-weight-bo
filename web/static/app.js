@@ -1,4 +1,11 @@
 let currentConfig = null;
+let weightsHidden = localStorage.getItem('hideWeights') === '1';
+
+function toggleWeightVisibility() {
+  weightsHidden = document.getElementById('hide-weights-toggle').checked;
+  localStorage.setItem('hideWeights', weightsHidden ? '1' : '0');
+  document.querySelectorAll('#duel-content .choice-meta').forEach(el => el.classList.toggle('weights-hidden', weightsHidden));
+}
 
 function toast(msg) {
   const el = document.getElementById('toast');
@@ -59,7 +66,7 @@ function duelCard(side, data) {
   return `<div class="choice-card" onclick="chooseDuel('${side}')">
     <span class="label">${side === 'left' ? 'A' : 'B'}</span>
     <img src="${data.image}" />
-    <div class="choice-meta">${weightBars(data.weights)}</div>
+    <div class="choice-meta${weightsHidden ? ' weights-hidden' : ''}">${weightBars(data.weights)}</div>
   </div>`;
 }
 
@@ -402,5 +409,6 @@ document.getElementById('s-parse-prompt').addEventListener('click', async () => 
 });
 
 // ---------- init ----------
+document.getElementById('hide-weights-toggle').checked = weightsHidden;
 loadSettings();
 pollDuel();
