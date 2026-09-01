@@ -252,7 +252,8 @@ async function loadSettings() {
   document.getElementById('s-weight-min').value = c.weight_bounds[0];
   document.getElementById('s-weight-max').value = c.weight_bounds[1];
   document.getElementById('s-reuse-threshold').value = c.reuse_threshold ?? 0.03;
-  document.getElementById('s-base-prompt').value = c.base_prompt || '';
+  document.getElementById('s-subject-prompt').value = c.subject_prompt || '';
+  document.getElementById('s-scene-prompt').value = c.scene_prompt || '';
   document.getElementById('s-quality-prompt').value = c.quality_prompt || '';
   document.getElementById('s-negative-prompt').value = c.negative_prompt || '';
   document.getElementById('s-width').value = c.width;
@@ -277,7 +278,8 @@ async function saveSettings() {
     weight_min: parseFloat(document.getElementById('s-weight-min').value),
     weight_max: parseFloat(document.getElementById('s-weight-max').value),
     reuse_threshold: parseFloat(document.getElementById('s-reuse-threshold').value) || 0,
-    base_prompt: document.getElementById('s-base-prompt').value,
+    subject_prompt: document.getElementById('s-subject-prompt').value,
+    scene_prompt: document.getElementById('s-scene-prompt').value,
     quality_prompt: document.getElementById('s-quality-prompt').value,
     negative_prompt: document.getElementById('s-negative-prompt').value,
     width: parseInt(document.getElementById('s-width').value, 10),
@@ -342,7 +344,7 @@ document.getElementById('s-parse-prompt').addEventListener('click', async () => 
 
   const artistsAdded = mergeLines(document.getElementById('s-artist-tags'), data.artists.map(a => a.tag));
   const qualityAdded = mergeCommaList(document.getElementById('s-quality-prompt'), data.qualities.map(q => q.tag));
-  const situationAdded = mergeCommaList(document.getElementById('s-base-prompt'), data.ignored.map(i => i.tag));
+  const situationAdded = mergeCommaList(document.getElementById('s-scene-prompt'), data.ignored.map(i => i.tag));
 
   const note = data.wiki_available ? '' : ' (danbooru wiki 없음 — artist: / by: 명시 태그만 인식됨)';
   const parts = [];

@@ -291,7 +291,7 @@ a{color:var(--accent)}
     </div>
 
     <div class="panel">
-      <div class="panel-head"><h2>Artist Tags (fixed set — weights only)</h2></div>
+      <div class="panel-head"><h2>2. Artist Tags (fixed set — weights only)</h2></div>
       <div class="field"><label>한 줄에 태그 하나</label><textarea id="s-tags" rows="6" placeholder="artist name a&#10;artist name b"></textarea></div>
       <div class="row">
         <div class="field"><label>Weight min</label><input type="number" id="s-wmin" step="0.05"></div>
@@ -301,8 +301,9 @@ a{color:var(--accent)}
 
     <div class="panel">
       <div class="panel-head"><h2>Prompt</h2></div>
-      <div class="field"><label>Base prompt (subject/composition)</label><textarea id="s-base" rows="2"></textarea></div>
-      <div class="field"><label>Quality prompt</label><textarea id="s-quality" rows="2"></textarea></div>
+      <div class="field"><label>1. Subject prompt (주체/인원 — 예: 1girl, solo)</label><textarea id="s-subject" rows="1"></textarea></div>
+      <div class="field"><label>3. Scene prompt (자세+캐릭터/구도)</label><textarea id="s-scene" rows="2"></textarea></div>
+      <div class="field"><label>4. Quality prompt</label><textarea id="s-quality" rows="2"></textarea></div>
       <div class="field"><label>Negative prompt</label><textarea id="s-neg" rows="2"></textarea></div>
     </div>
 
@@ -566,15 +567,16 @@ class BOSession{
       wiki verification — everything comma-separated is a candidate
       artist tag when importing).
    ============================================================ */
-function renderPrompt(basePrompt, artistTags, qualityPrompt){
+function renderPrompt(subjectPrompt, artistTags, scenePrompt, qualityPrompt){
+  // Prompt order (4 sections): subject/count -> artist tags -> scene/pose/character -> quality.
   const parts=[];
   for(const {tag,weight} of artistTags){
     const t = tag.startsWith('artist:') ? tag : 'artist:'+tag;
     if(Math.abs(weight-1.0)<0.005) parts.push(t);
     else parts.push(weight.toFixed(2)+':: '+t+' ::');
   }
-  const prefix=parts.join(', ');
-  return [prefix, basePrompt, qualityPrompt].filter(Boolean).join(', ');
+  const artistSection=parts.join(', ');
+  return [subjectPrompt, artistSection, scenePrompt, qualityPrompt].filter(Boolean).join(', ');
 }
 const NUMERIC_BLOCK=/([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*::(.*?)::/gs;
 function cleanTag(raw){
@@ -658,7 +660,7 @@ async function idbClear(){
 
 const DEFAULT_CONFIG={
   novelaiToken:'', useLive:false, model:'nai-diffusion-4-5-full',
-  basePrompt:'1girl, solo, looking at viewer', qualityPrompt:'very aesthetic, masterpiece, no text',
+  subjectPrompt:'1girl, solo', scenePrompt:'looking at viewer', qualityPrompt:'very aesthetic, masterpiece, no text',
   negativePrompt:'worst quality, low quality, blurry',
   width:832, height:1216, steps:28, scale:5.0, cfgRescale:0.0,
   sampler:'k_euler_ancestral', noiseSchedule:'karras', variety:false, seed:42,
@@ -780,7 +782,7 @@ function nearestCachedImg(point){
 async function imageFor(point, weights, seed){
   const cached=nearestCachedImg(point);
   if(cached!==null) return cached;
-  const blob=await generateImage(renderPrompt(state.config.basePrompt, Object.entries(weights).map(([tag,weight])=>({tag,weight})), state.config.qualityPrompt), seed);
+  const blob=await generateImage(renderPrompt(state.config.subjectPrompt, Object.entries(weights).map(([tag,weight])=>({tag,weight})), state.config.scenePrompt, state.config.qualityPrompt), seed);
   const id='img-'+(state.nextImgId++);
   await idbPut(id, blob);
   state.imageCache.push([point, id]);
@@ -979,7 +981,8 @@ function loadSettingsForm(){
   document.getElementById('s-tags').value=c.artistTags.join('\n');
   document.getElementById('s-wmin').value=c.weightBounds[0];
   document.getElementById('s-wmax').value=c.weightBounds[1];
-  document.getElementById('s-base').value=c.basePrompt;
+  document.getElementById('s-subject').value=c.subjectPrompt;
+  document.getElementById('s-scene').value=c.scenePrompt;
   document.getElementById('s-quality').value=c.qualityPrompt;
   document.getElementById('s-neg').value=c.negativePrompt;
   document.getElementById('s-width').value=c.width;
@@ -1002,7 +1005,8 @@ function saveSettingsForm(){
     model: document.getElementById('s-model').value,
     artistTags: document.getElementById('s-tags').value.split('\n').map(s=>s.trim()).filter(Boolean),
     weightBounds: [parseFloat(document.getElementById('s-wmin').value), parseFloat(document.getElementById('s-wmax').value)],
-    basePrompt: document.getElementById('s-base').value,
+    subjectPrompt: document.getElementById('s-subject').value,
+    scenePrompt: document.getElementById('s-scene').value,
     qualityPrompt: document.getElementById('s-quality').value,
     negativePrompt: document.getElementById('s-neg').value,
     width: parseInt(document.getElementById('s-width').value,10),

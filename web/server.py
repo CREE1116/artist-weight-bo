@@ -134,7 +134,10 @@ class AppState:
 
     def prompt_for(self, weights: dict[str, float]) -> str:
         tags = [ArtistTag(tag, weight) for tag, weight in weights.items()]
-        return render_prompt(self.config.get("base_prompt", ""), tags, self.config.get("quality_prompt", ""))
+        return render_prompt(
+            self.config.get("subject_prompt", ""), tags,
+            self.config.get("scene_prompt", ""), self.config.get("quality_prompt", ""),
+        )
 
     def advance(self) -> None:
         with self.lock:
@@ -288,7 +291,8 @@ def _validate_config(body: dict) -> dict:
         "novelai_token": token,
         "use_live_novelai": use_live,
         "model": body.get("model", "nai-diffusion-4-5-full"),
-        "base_prompt": body.get("base_prompt", ""),
+        "subject_prompt": body.get("subject_prompt", ""),
+        "scene_prompt": body.get("scene_prompt", ""),
         "negative_prompt": body.get("negative_prompt", ""),
         "quality_prompt": body.get("quality_prompt", ""),
         "width": int(body.get("width", 832)),

@@ -85,7 +85,7 @@
         <button id="s-parse-prompt" class="ghost wide">파싱해서 자동 채우기</button>
         <div id="s-parse-result" style="font-size:11px;color:var(--muted);"></div>
         <hr>
-        <span class="eyebrow">ARTIST TAGS (fixed set — weights only)</span>
+        <span class="eyebrow">2. ARTIST TAGS (fixed set — weights only)</span>
         <label>한 줄에 태그 하나<textarea id="s-artist-tags" rows="6" placeholder="artist name a&#10;artist name b"></textarea></label>
         <div class="config-grid">
           <label>Weight min<input id="s-weight-min" type="number" step="0.05"></label>
@@ -98,8 +98,9 @@
 
       <article class="panel form">
         <span class="eyebrow">PROMPT</span>
-        <label>Base prompt (subject/composition)<textarea id="s-base-prompt" rows="2"></textarea></label>
-        <label>Quality prompt<textarea id="s-quality-prompt" rows="2"></textarea></label>
+        <label>Subject prompt (1. 주체/인원 — 예: 1girl, solo)<textarea id="s-subject-prompt" rows="1"></textarea></label>
+        <label>Scene prompt (3. 자세+캐릭터/구도)<textarea id="s-scene-prompt" rows="2"></textarea></label>
+        <label>Quality prompt (4. 퀄리티)<textarea id="s-quality-prompt" rows="2"></textarea></label>
         <label>Negative prompt<textarea id="s-negative-prompt" rows="2"></textarea></label>
         <hr>
         <span class="eyebrow">GENERATION CONTROL</span>
