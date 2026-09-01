@@ -230,12 +230,14 @@ class AppState:
     def best(self) -> dict:
         with self.lock:
             weights = self.session.best_weights()
+            conf = self.session.confidence()
             prompt = self.prompt_for(weights)
             artist_prompt = render_prompt("", [ArtistTag(tag, w) for tag, w in weights.items()], "")
             observed = len(self.session.pairs)
         return {
             "weights": weights, "prompt": prompt, "artist_prompt": artist_prompt,
             "observed_pairs": observed,
+            "confidence": conf["confidence"], "posterior_std": conf["std"],
         }
 
     def landscape(self) -> dict:

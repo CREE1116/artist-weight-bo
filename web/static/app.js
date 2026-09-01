@@ -112,6 +112,10 @@ async function loadBestPanel() {
   document.getElementById('best-observed').textContent = data.observed_pairs;
   const view = document.getElementById('best-weights-view');
   view.innerHTML = data.observed_pairs ? weightBars(data.weights) : '<div style="color:var(--muted);font-size:12px;">아직 선택 기록이 없습니다 — 균등 가중치(1.0) 기준입니다.</div>';
+
+  const confPct = Math.round((data.confidence || 0) * 100);
+  document.getElementById('confidence-bar').style.width = confPct + '%';
+  document.getElementById('confidence-pct').textContent = confPct + '%';
 }
 
 document.getElementById('copy-best').addEventListener('click', async () => {
@@ -136,18 +140,31 @@ document.getElementById('s-reset').addEventListener('click', async () => {
 });
 
 // ---------- Gallery ----------
+let galleryItems = [];
+
+function artistPromptFromWeights(weights) {
+  return Object.entries(weights).map(([tag, w]) => {
+    const t = tag.startsWith('artist:') ? tag : 'artist:' + tag;
+    return Math.abs(w - 1.0) < 0.005 ? t : `${w.toFixed(2)}:: ${t} ::`;
+  }).join(', ');
+}
+
 async function loadGallery() {
   const grid = document.getElementById('gallery-grid');
   grid.innerHTML = '로딩…';
   const res = await fetch('/history');
   const { history } = await res.json();
   if (!history.length) { grid.innerHTML = '<div class="empty-card">아직 생성된 이미지가 없습니다.</div>'; return; }
+  galleryItems = [];
   const cards = [];
   for (const h of [...history].reverse()) {
     for (const side of ['left', 'right']) {
       const win = h.winner === side;
-      const weightsText = Object.entries(h[side]).map(([t, w]) => `${t}:${w.toFixed(2)}`).join(', ');
-      cards.push(`<div class="gallery-card ${win ? 'win' : ''}">
+      const weights = h[side];
+      const weightsText = Object.entries(weights).map(([t, w]) => `${t}:${w.toFixed(2)}`).join(', ');
+      const idx = galleryItems.length;
+      galleryItems.push({ image: h[side + '_image'], weights, round: h.round, win });
+      cards.push(`<div class="gallery-card ${win ? 'win' : ''}" data-idx="${idx}">
         <span class="tag ${win ? 'win' : ''}">${win ? 'WIN' : 'round ' + h.round}</span>
         <img src="${h[side + '_image']}" />
         <small>${weightsText}</small>
@@ -156,6 +173,32 @@ async function loadGallery() {
   }
   grid.innerHTML = `<div class="gallery-grid">${cards.join('')}</div>`;
 }
+
+document.getElementById('gallery-grid').addEventListener('click', (e) => {
+  const card = e.target.closest('.gallery-card');
+  if (!card) return;
+  openImageModal(galleryItems[parseInt(card.dataset.idx, 10)]);
+});
+
+function openImageModal(item) {
+  document.getElementById('modal-img').src = item.image;
+  document.getElementById('modal-weights').innerHTML =
+    `<p style="font-size:11px;color:var(--muted);margin:0 0 10px;">round ${item.round}${item.win ? ' · WIN' : ''}</p>` + weightBars(item.weights);
+  document.getElementById('modal-copy').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(artistPromptFromWeights(item.weights));
+      toast('작가 태그 복사됨');
+    } catch (e) {
+      toast('클립보드 접근 실패: ' + e.message);
+    }
+  };
+  document.getElementById('image-modal').hidden = false;
+}
+function closeImageModal() { document.getElementById('image-modal').hidden = true; }
+document.getElementById('modal-close').addEventListener('click', closeImageModal);
+document.getElementById('image-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'image-modal') closeImageModal();
+});
 
 // ---------- Win Record ----------
 async function loadWinRecord() {

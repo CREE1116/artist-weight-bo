@@ -117,7 +117,14 @@ textarea{resize:vertical;min-height:64px;line-height:1.5;}
 
 /* ---------- gallery / winrecord ---------- */
 .gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;}
-.gallery-card{position:relative;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--surface);}
+.gallery-card{position:relative;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--surface);cursor:pointer;}
+.modal-backdrop{position:fixed;inset:0;background:rgba(5,6,9,.85);backdrop-filter:blur(6px);z-index:60;display:flex;align-items:center;justify-content:center;padding:16px;}
+.modal-backdrop[hidden]{display:none}
+.modal-box{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:16px;max-width:900px;width:100%;max-height:92vh;overflow:auto;display:flex;flex-wrap:wrap;}
+.modal-box img{flex:1 1 380px;max-width:100%;max-height:80vh;object-fit:contain;background:#05070a;border-radius:16px 0 0 16px;display:block;}
+.modal-body{flex:1 1 240px;padding:18px;min-width:220px;}
+.modal-close{position:absolute;top:8px;right:8px;z-index:2;padding:6px 10px;}
+@media(max-width:700px){.modal-box{flex-direction:column;}.modal-box img{border-radius:16px 16px 0 0;max-height:46vh;}}
 .gallery-card.win{border-color:var(--accent);}
 .gallery-card img{width:100%;aspect-ratio:832/1216;object-fit:cover;display:block;background:#05070a;}
 .gallery-card .tag{position:absolute;top:6px;left:6px;font-size:9px;font-weight:700;padding:2px 6px;border-radius:5px;background:color-mix(in srgb,var(--bg) 75%,transparent);font-family:var(--font-mono);}
@@ -234,6 +241,11 @@ a{color:var(--accent)}
     <div class="panel" style="margin-top:20px;">
       <div class="panel-head"><h2>현재 최적 가중치</h2><button class="ghost" id="copyBestBtn">📋 작가 태그 복사</button></div>
       <p class="hint" style="margin:-2px 0 10px;">지금까지 선택 <span id="bestObserved" class="tabular">0</span>개 기준 GP posterior 추정치</p>
+      <div class="row" style="align-items:center;gap:8px;margin-bottom:10px;">
+        <span class="hint" style="flex-shrink:0;">신뢰도</span>
+        <div class="bar-track" style="flex:1;max-width:160px;margin:0;"><i id="confidenceBar" style="width:0%;"></i></div>
+        <span id="confidencePct" class="tabular hint">0%</span>
+      </div>
       <div id="bestWeightsView"></div>
     </div>
   </section>
@@ -360,6 +372,17 @@ a{color:var(--accent)}
 </nav>
 
 <div class="toast" id="toast"></div>
+
+<div id="imageModal" class="modal-backdrop" hidden>
+  <div class="modal-box">
+    <button class="ghost modal-close" id="modalClose">✕</button>
+    <img id="modalImg" />
+    <div class="modal-body">
+      <div id="modalWeights"></div>
+      <button class="primary wide" id="modalCopy">📋 이 이미지의 작가 태그 복사</button>
+    </div>
+  </div>
+</div>
 <script>
 'use strict';
 
@@ -541,6 +564,17 @@ class BOSession{
     const x=this.bestPoint();
     if(!x){ const out={}; this.tags.forEach(t=>out[t]=1.0); return out; }
     return this.toWeights(x);
+  }
+  confidence(){
+    // 1 - posterior std at the best point (relative to output scale). Low
+    // confidence means the model hasn't pinned this down yet.
+    const x=this.bestPoint();
+    if(!x) return {confidence:0, std:1, observedPairs:0};
+    this.gp.fit(this.points, this.pairs);
+    const {variance}=this.gp.predict([x]);
+    const std=Math.sqrt(Math.max(variance[0],0));
+    const conf=Math.max(0, 1 - Math.min(1, std/Math.sqrt(this.gp.outputscale)));
+    return {confidence:conf, std, observedPairs:this.pairs.length};
   }
   landscape(resolution=21){
     const bestX=this.bestPoint();
@@ -918,23 +952,51 @@ function renderBestPanel(){
   document.getElementById('bestWeightsView').innerHTML = observed
     ? weightBarsHtml(weights)
     : '<p class="hint">아직 선택 기록이 없습니다 — 균등 가중치(1.0) 기준입니다.</p>';
+
+  const conf=session.confidence();
+  const pct=Math.round(conf.confidence*100);
+  document.getElementById('confidenceBar').style.width=pct+'%';
+  document.getElementById('confidencePct').textContent=pct+'%';
 }
 
+let galleryItems=[];
 async function renderGallery(){
   const grid=document.getElementById('galleryGrid');
   if(!session.history.length){ grid.innerHTML='<div class="empty-card">아직 생성된 이미지가 없습니다.</div>'; return; }
   grid.innerHTML='로딩…';
+  galleryItems=[];
   const cards=[];
   for(const h of [...session.history].reverse()){
     for(const side of ['left','right']){
       const win=h.winner===side;
+      const weights=h[side];
       const imgId = side==='left'?h.leftImgId:h.rightImgId;
       const url=await urlFor(imgId);
-      cards.push(`<div class="gallery-card ${win?'win':''}"><span class="tag ${win?'win':''}">${win?'WIN':'r'+h.round}</span><img src="${url}"></div>`);
+      const idx=galleryItems.length;
+      galleryItems.push({image:url, weights, round:h.round, win});
+      cards.push(`<div class="gallery-card ${win?'win':''}" data-idx="${idx}"><span class="tag ${win?'win':''}">${win?'WIN':'r'+h.round}</span><img src="${url}"></div>`);
     }
   }
   grid.innerHTML=`<div class="gallery-grid">${cards.join('')}</div>`;
 }
+document.getElementById('galleryGrid').addEventListener('click', e=>{
+  const card=e.target.closest('.gallery-card'); if(!card) return;
+  openImageModal(galleryItems[parseInt(card.dataset.idx,10)]);
+});
+function openImageModal(item){
+  document.getElementById('modalImg').src=item.image;
+  document.getElementById('modalWeights').innerHTML=
+    `<p class="hint" style="margin:0 0 10px;">round ${item.round}${item.win?' · WIN':''}</p>`+weightBarsHtml(item.weights);
+  document.getElementById('modalCopy').onclick=async()=>{
+    const prompt=renderPrompt('', Object.entries(item.weights).map(([tag,weight])=>({tag,weight})), '', '');
+    try{ await navigator.clipboard.writeText(prompt); toast('작가 태그 복사됨'); }
+    catch(e){ toast('클립보드 접근 실패: '+e.message); }
+  };
+  document.getElementById('imageModal').hidden=false;
+}
+function closeImageModal(){ document.getElementById('imageModal').hidden=true; }
+document.getElementById('modalClose').addEventListener('click', closeImageModal);
+document.getElementById('imageModal').addEventListener('click', e=>{ if(e.target.id==='imageModal') closeImageModal(); });
 function renderRecord(){
   const list=document.getElementById('recordList');
   if(!session.history.length){ list.innerHTML='<div class="empty-card">기록 없음</div>'; return; }

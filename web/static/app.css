@@ -84,3 +84,11 @@ hr{border:0;border-top:1px solid var(--line);margin:20px 0}
 .progress{height:7px;background:#20242e;border-radius:99px;overflow:hidden;max-width:420px;margin:16px auto 0;}
 .progress i{display:block;height:100%;background:linear-gradient(90deg,var(--purple),var(--accent));border-radius:99px;transition:width .4s ease;}
 @media(max-width:900px){.pair-stage,.grid.two{grid-template-columns:1fr}.choice-card img{max-height:50vh}}
+.gallery-card{cursor:pointer}
+.modal-backdrop{position:fixed;inset:0;background:rgba(6,7,10,.82);backdrop-filter:blur(6px);z-index:60;display:flex;align-items:center;justify-content:center;padding:24px;}
+.modal-backdrop[hidden]{display:none}
+.modal-box{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:16px;max-width:900px;width:100%;max-height:90vh;overflow:auto;display:flex;flex-wrap:wrap;gap:0;}
+.modal-box img{flex:1 1 380px;max-width:100%;max-height:80vh;object-fit:contain;background:#0d1015;border-radius:16px 0 0 16px;display:block;}
+.modal-body{flex:1 1 260px;padding:20px;min-width:220px;}
+.modal-close{position:absolute;top:10px;right:10px;z-index:2;padding:6px 10px;}
+@media(max-width:700px){.modal-box{flex-direction:column;}.modal-box img{border-radius:16px 16px 0 0;max-height:50vh;}}
