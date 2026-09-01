@@ -1,6 +1,6 @@
 {
   "name": "artist-weight-bo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Preferential Bayesian optimization over fixed NovelAI artist-tag weights",
   "main": "electron/main.cjs",
   "author": "Local research prototype",
