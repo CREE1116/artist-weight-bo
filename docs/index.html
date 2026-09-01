@@ -571,7 +571,7 @@ function renderPrompt(basePrompt, artistTags, qualityPrompt){
   for(const {tag,weight} of artistTags){
     const t = tag.startsWith('artist:') ? tag : 'artist:'+tag;
     if(Math.abs(weight-1.0)<0.005) parts.push(t);
-    else parts.push(weight.toFixed(2)+'::'+t+'::');
+    else parts.push(weight.toFixed(2)+':: '+t+' ::');
   }
   const prefix=parts.join(', ');
   return [prefix, basePrompt, qualityPrompt].filter(Boolean).join(', ');
