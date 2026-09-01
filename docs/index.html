@@ -109,6 +109,7 @@ textarea{resize:vertical;min-height:64px;line-height:1.5;}
 .bar-track{grid-column:1/-1;height:5px;background:var(--surface2);border-radius:99px;overflow:hidden;}
 .bar-track i{display:block;height:100%;background:linear-gradient(90deg,var(--purple),var(--accent));}
 .bar-val{font-family:var(--font-mono);color:var(--muted);}
+.duel-weights.weights-hidden{filter:blur(6px);opacity:.35;pointer-events:none;user-select:none;}
 .status-line{text-align:center;color:var(--muted);font-size:12.5px;margin:14px 0;min-height:18px;}
 .progress-track{max-width:320px;margin:0 auto;height:5px;background:var(--surface2);border-radius:99px;overflow:hidden;}
 .progress-track i{display:block;height:100%;background:linear-gradient(90deg,var(--purple),var(--accent));transition:width .3s ease;}
@@ -233,6 +234,10 @@ a{color:var(--accent)}
     <p class="eyebrow">A/B Preference</p>
     <h1>어느 쪽이 더 마음에 드나요?</h1>
     <p class="lede">클릭한 쪽이 이깁니다. 같은 seed·프롬프트로, 작가 태그 <b>가중치</b>만 바뀝니다.</p>
+    <label class="hint" style="display:flex;align-items:center;gap:6px;cursor:pointer;width:fit-content;">
+      <input type="checkbox" id="hideWeightsToggle" onchange="toggleWeightVisibility()">
+      가중치 숫자 숨기기 (그림만 보고 고르기)
+    </label>
 
     <div id="duelArea"></div>
     <div class="status-line" id="duelStatus"></div>
@@ -896,11 +901,20 @@ function weightBarsHtml(weights, excluded){
 }
 function esc(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+let weightsHidden=false;
+try{ weightsHidden=localStorage.getItem('hideWeights')==='1'; }catch(e){}
+
+function toggleWeightVisibility(){
+  weightsHidden=document.getElementById('hideWeightsToggle').checked;
+  try{ localStorage.setItem('hideWeights', weightsHidden?'1':'0'); }catch(e){}
+  document.querySelectorAll('#duelArea .duel-weights').forEach(el=>el.classList.toggle('weights-hidden', weightsHidden));
+}
+
 async function renderDuelCard(side, data){
   const url=await urlFor(data.imgId);
   return `<div class="duel-card" data-side="${side}"><span class="letter">${side==='left'?'A':'B'}</span>
     <img src="${url}" alt="candidate ${side}">
-    ${weightBarsHtml(data.weights)}
+    <div class="duel-weights${weightsHidden?' weights-hidden':''}">${weightBarsHtml(data.weights)}</div>
   </div>`;
 }
 
@@ -1162,6 +1176,7 @@ document.getElementById('s-parseBtn').addEventListener('click', parsePromptImpor
 document.getElementById('s-reset').addEventListener('click', resetProgress);
 document.getElementById('landscapeRefresh').addEventListener('click', renderLandscape);
 
+document.getElementById('hideWeightsToggle').checked = weightsHidden;
 loadSettingsForm();
 refreshStatus();
 render();
