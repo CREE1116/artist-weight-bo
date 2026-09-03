@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from core.bo_loop import BOSession
-from core.genome import ArtistTag, render_prompt
+from core.genome import ArtistTag, muted_tags, render_prompt
 from core.provider import MockProvider, NovelAIProvider
 from core.wiki import DanbooruWiki
 from core.prompt_parser import classify_prompt_genes
@@ -138,6 +138,7 @@ class AppState:
             self.config.get("subject_prompt", ""), tags,
             self.config.get("scene_prompt", ""), self.config.get("quality_prompt", ""),
             weight_cutoff=float(self.config.get("weight_cutoff", 0.2)),
+            top_n=int(self.config.get("top_n_tags", 0)),
         )
 
     def advance(self) -> None:
@@ -232,14 +233,16 @@ class AppState:
         with self.lock:
             weights = self.session.best_weights()
             conf = self.session.confidence()
+            tags = [ArtistTag(tag, w) for tag, w in weights.items()]
+            cutoff = float(self.config.get("weight_cutoff", 0.2))
+            top_n = int(self.config.get("top_n_tags", 0))
             prompt = self.prompt_for(weights)
-            artist_prompt = render_prompt(
-                "", [ArtistTag(tag, w) for tag, w in weights.items()], "",
-                weight_cutoff=float(self.config.get("weight_cutoff", 0.2)),
-            )
+            artist_prompt = render_prompt("", tags, "", weight_cutoff=cutoff, top_n=top_n)
+            muted = sorted(muted_tags(tags, cutoff, top_n))
             observed = len(self.session.pairs)
         return {
             "weights": weights, "prompt": prompt, "artist_prompt": artist_prompt,
+            "muted_tags": muted,
             "observed_pairs": observed,
             "confidence": conf["confidence"], "posterior_std": conf["std"],
         }
@@ -313,6 +316,7 @@ def _validate_config(body: dict) -> dict:
         "artist_tags": tags,
         "weight_bounds": [lo, hi],
         "weight_cutoff": float(body.get("weight_cutoff", 0.2)),
+        "top_n_tags": int(body.get("top_n_tags", 0)),
         "reuse_threshold": float(body.get("reuse_threshold", 0.03)),
         "max_rounds": int(body.get("max_rounds", 100)),
         "candidate_pool": int(body.get("candidate_pool", 300)),

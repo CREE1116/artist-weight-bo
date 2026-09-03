@@ -103,6 +103,9 @@
         <label>가중치 컷오프 — 이 값 이하인 작가 태그는 프롬프트에서 아예 빠짐 (복사할 때도 빠짐)
           <input id="s-weight-cutoff" type="number" step="0.05" min="0" placeholder="0 = 끔">
         </label>
+        <label>상위 N개 태그만 사용 — 컷오프 통과한 태그 중 가중치 상위 N개만 프롬프트에 남김 (컷오프와 함께 적용됨)
+          <input id="s-top-n-tags" type="number" step="1" min="0" placeholder="0 = 끔">
+        </label>
         <label>이미지 재사용 임계값 — 정규화 가중치 벡터 거리가 이 값 이하면 새로 생성 안 하고 기존 이미지 재사용 (같은 seed·프롬프트라 결과가 사실상 동일할 것으로 판단)
           <input id="s-reuse-threshold" type="number" step="0.01" min="0" placeholder="0 = 끔">
         </label>

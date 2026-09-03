@@ -315,6 +315,7 @@ a{color:var(--accent)}
         <div class="field"><label>Weight max</label><input type="number" id="s-wmax" step="0.05"></div>
       </div>
       <div class="field"><label>가중치 컷오프 — 이 값 이하인 작가 태그는 프롬프트에서 아예 빠짐 (복사할 때도 빠짐)</label><input type="number" id="s-wcutoff" step="0.05" min="0" placeholder="0 = 끔"></div>
+      <div class="field"><label>상위 N개 태그만 사용 — 컷오프 통과한 태그 중 가중치 상위 N개만 프롬프트에 남김 (컷오프와 함께 적용됨)</label><input type="number" id="s-topn" step="1" min="0" placeholder="0 = 끔"></div>
     </div>
 
     <div class="panel">
@@ -621,13 +622,28 @@ class BOSession{
       wiki verification — everything comma-separated is a candidate
       artist tag when importing).
    ============================================================ */
-function renderPrompt(subjectPrompt, artistTags, scenePrompt, qualityPrompt, weightCutoff){
-  // Prompt order (4 sections): subject/count -> artist tags -> scene/pose/character -> quality.
-  // Artist tags at or below weightCutoff are dropped entirely, not just left at weight 1.0.
+function mutedTags(artistTags, weightCutoff, topN){
+  // Tags renderPrompt would drop for this cutoff/topN pair -- shared with the
+  // UI so "muted" badges match what actually leaves the prompt.
   const cutoff = weightCutoff || 0;
+  const muted = new Set(artistTags.filter(({weight}) => weight<=cutoff).map(({tag}) => tag));
+  const n = topN || 0;
+  if(n>0){
+    const survivors = artistTags.filter(({tag}) => !muted.has(tag));
+    if(survivors.length>n){
+      const keep = new Set(survivors.slice().sort((a,b)=>b.weight-a.weight).slice(0,n).map(({tag})=>tag));
+      survivors.forEach(({tag}) => { if(!keep.has(tag)) muted.add(tag); });
+    }
+  }
+  return muted;
+}
+function renderPrompt(subjectPrompt, artistTags, scenePrompt, qualityPrompt, weightCutoff, topN){
+  // Prompt order (4 sections): subject/count -> artist tags -> scene/pose/character -> quality.
+  // Artist tags at or below weightCutoff, or outside the top-N by weight, are dropped entirely.
+  const muted = mutedTags(artistTags, weightCutoff, topN);
   const parts=[];
   for(const {tag,weight} of artistTags){
-    if(weight<=cutoff) continue;
+    if(muted.has(tag)) continue;
     const t = tag.startsWith('artist:') ? tag : 'artist:'+tag;
     if(Math.abs(weight-1.0)<0.005) parts.push(t);
     else parts.push(weight.toFixed(2)+':: '+t+' ::');
@@ -721,7 +737,7 @@ const DEFAULT_CONFIG={
   negativePrompt:'worst quality, low quality, blurry',
   width:832, height:1216, steps:28, scale:7.0, cfgRescale:0.6,
   sampler:'k_euler_ancestral', noiseSchedule:'karras', variety:false, seed:42,
-  artistTags:[], weightBounds:[0.2,1.6], weightCutoff:0.2, reuseThreshold:0.03,
+  artistTags:[], weightBounds:[0.2,1.6], weightCutoff:0.2, topNTags:0, reuseThreshold:0.03,
   maxRounds:100, candidatePool:250,
 };
 
@@ -839,7 +855,7 @@ function nearestCachedImg(point){
 async function imageFor(point, weights, seed){
   const cached=nearestCachedImg(point);
   if(cached!==null) return cached;
-  const blob=await generateImage(renderPrompt(state.config.subjectPrompt, Object.entries(weights).map(([tag,weight])=>({tag,weight})), state.config.scenePrompt, state.config.qualityPrompt, state.config.weightCutoff), seed);
+  const blob=await generateImage(renderPrompt(state.config.subjectPrompt, Object.entries(weights).map(([tag,weight])=>({tag,weight})), state.config.scenePrompt, state.config.qualityPrompt, state.config.weightCutoff, state.config.topNTags), seed);
   const id='img-'+(state.nextImgId++);
   await idbPut(id, blob);
   state.imageCache.push([point, id]);
@@ -904,6 +920,9 @@ function resetProgress(){
 /* ============================================================
    6. RENDERING
    ============================================================ */
+function computeMuted(weights){
+  return mutedTags(Object.entries(weights).map(([tag,weight])=>({tag,weight})), state.config.weightCutoff, state.config.topNTags);
+}
 function weightBarsHtml(weights, excluded){
   excluded=excluded||new Set();
   const [lo,hi]=state.config.weightBounds;
@@ -928,7 +947,7 @@ async function renderDuelCard(side, data){
   const url=await urlFor(data.imgId);
   return `<div class="duel-card" data-side="${side}"><span class="letter">${side==='left'?'A':'B'}</span>
     <img src="${url}" alt="candidate ${side}">
-    <div class="duel-weights${weightsHidden?' weights-hidden':''}">${weightBarsHtml(data.weights)}</div>
+    <div class="duel-weights${weightsHidden?' weights-hidden':''}">${weightBarsHtml(data.weights, computeMuted(data.weights))}</div>
   </div>`;
 }
 
@@ -982,7 +1001,7 @@ function renderBestPanel(){
   const observed=session.pairs.length;
   document.getElementById('bestObserved').textContent=observed;
   document.getElementById('bestWeightsView').innerHTML = observed
-    ? weightBarsHtml(weights)
+    ? weightBarsHtml(weights, computeMuted(weights))
     : '<p class="hint">아직 선택 기록이 없습니다 — 균등 가중치(1.0) 기준입니다.</p>';
 
   const conf=session.confidence();
@@ -1018,9 +1037,9 @@ document.getElementById('galleryGrid').addEventListener('click', e=>{
 function openImageModal(item){
   document.getElementById('modalImg').src=item.image;
   document.getElementById('modalWeights').innerHTML=
-    `<p class="hint" style="margin:0 0 10px;">round ${item.round}${item.win?' · WIN':''}</p>`+weightBarsHtml(item.weights);
+    `<p class="hint" style="margin:0 0 10px;">round ${item.round}${item.win?' · WIN':''}</p>`+weightBarsHtml(item.weights, computeMuted(item.weights));
   document.getElementById('modalCopy').onclick=async()=>{
-    const prompt=renderPrompt('', Object.entries(item.weights).map(([tag,weight])=>({tag,weight})), '', '', state.config.weightCutoff);
+    const prompt=renderPrompt('', Object.entries(item.weights).map(([tag,weight])=>({tag,weight})), '', '', state.config.weightCutoff, state.config.topNTags);
     try{ await navigator.clipboard.writeText(prompt); toast('작가 태그 복사됨'); }
     catch(e){ toast('클립보드 접근 실패: '+e.message); }
   };
@@ -1076,6 +1095,7 @@ function loadSettingsForm(){
   document.getElementById('s-wmin').value=c.weightBounds[0];
   document.getElementById('s-wmax').value=c.weightBounds[1];
   document.getElementById('s-wcutoff').value=c.weightCutoff ?? 0;
+  document.getElementById('s-topn').value=c.topNTags ?? 0;
   document.getElementById('s-subject').value=c.subjectPrompt;
   document.getElementById('s-scene').value=c.scenePrompt;
   document.getElementById('s-quality').value=c.qualityPrompt;
@@ -1101,6 +1121,7 @@ function saveSettingsForm(){
     artistTags: document.getElementById('s-tags').value.split('\n').map(s=>s.trim()).filter(Boolean),
     weightBounds: [parseFloat(document.getElementById('s-wmin').value), parseFloat(document.getElementById('s-wmax').value)],
     weightCutoff: parseFloat(document.getElementById('s-wcutoff').value)||0,
+    topNTags: parseInt(document.getElementById('s-topn').value,10)||0,
     subjectPrompt: document.getElementById('s-subject').value,
     scenePrompt: document.getElementById('s-scene').value,
     qualityPrompt: document.getElementById('s-quality').value,
@@ -1159,7 +1180,7 @@ function parsePromptImport(){
 
 async function copyBestArtistPrompt(){
   const weights=session.bestWeights();
-  const prompt=renderPrompt('', Object.entries(weights).map(([tag,weight])=>({tag,weight})), '', '', state.config.weightCutoff);
+  const prompt=renderPrompt('', Object.entries(weights).map(([tag,weight])=>({tag,weight})), '', '', state.config.weightCutoff, state.config.topNTags);
   if(!session.pairs.length){ toast('아직 선택 기록이 없습니다.'); return; }
   try{ await navigator.clipboard.writeText(prompt); toast('작가 태그 복사됨 ('+session.pairs.length+'개 선택 기반)'); }
   catch(e){ toast('클립보드 접근 실패: '+e.message); }

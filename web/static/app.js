@@ -50,6 +50,20 @@ function setProgress(show, frac) {
   if (show) bar.style.width = `${Math.round((frac || 0) * 100)}%`;
 }
 
+function computeMuted(weights) {
+  const cutoff = (currentConfig && currentConfig.weight_cutoff) || 0;
+  const topN = (currentConfig && currentConfig.top_n_tags) || 0;
+  const muted = new Set(Object.entries(weights).filter(([, w]) => w <= cutoff).map(([t]) => t));
+  if (topN > 0) {
+    const survivors = Object.entries(weights).filter(([t]) => !muted.has(t));
+    if (survivors.length > topN) {
+      const keep = new Set(survivors.slice().sort((a, b) => b[1] - a[1]).slice(0, topN).map(([t]) => t));
+      survivors.forEach(([t]) => { if (!keep.has(t)) muted.add(t); });
+    }
+  }
+  return muted;
+}
+
 function weightBars(weights, excluded) {
   const bounds = currentConfig ? currentConfig.weight_bounds : [0.2, 1.6];
   const [lo, hi] = bounds;
@@ -66,7 +80,7 @@ function duelCard(side, data) {
   return `<div class="choice-card" onclick="chooseDuel('${side}')">
     <span class="label">${side === 'left' ? 'A' : 'B'}</span>
     <img src="${data.image}" />
-    <div class="choice-meta${weightsHidden ? ' weights-hidden' : ''}">${weightBars(data.weights)}</div>
+    <div class="choice-meta${weightsHidden ? ' weights-hidden' : ''}">${weightBars(data.weights, computeMuted(data.weights))}</div>
   </div>`;
 }
 
@@ -118,7 +132,8 @@ async function loadBestPanel() {
   const data = await res.json();
   document.getElementById('best-observed').textContent = data.observed_pairs;
   const view = document.getElementById('best-weights-view');
-  view.innerHTML = data.observed_pairs ? weightBars(data.weights) : '<div style="color:var(--muted);font-size:12px;">아직 선택 기록이 없습니다 — 균등 가중치(1.0) 기준입니다.</div>';
+  const muted = new Set(data.muted_tags || []);
+  view.innerHTML = data.observed_pairs ? weightBars(data.weights, muted) : '<div style="color:var(--muted);font-size:12px;">아직 선택 기록이 없습니다 — 균등 가중치(1.0) 기준입니다.</div>';
 
   const confPct = Math.round((data.confidence || 0) * 100);
   document.getElementById('confidence-bar').style.width = confPct + '%';
@@ -150,8 +165,8 @@ document.getElementById('s-reset').addEventListener('click', async () => {
 let galleryItems = [];
 
 function artistPromptFromWeights(weights) {
-  const cutoff = (currentConfig && currentConfig.weight_cutoff) || 0;
-  return Object.entries(weights).filter(([, w]) => w > cutoff).map(([tag, w]) => {
+  const muted = computeMuted(weights);
+  return Object.entries(weights).filter(([tag]) => !muted.has(tag)).map(([tag, w]) => {
     const t = tag.startsWith('artist:') ? tag : 'artist:' + tag;
     return Math.abs(w - 1.0) < 0.005 ? t : `${w.toFixed(2)}:: ${t} ::`;
   }).join(', ');
@@ -191,7 +206,7 @@ document.getElementById('gallery-grid').addEventListener('click', (e) => {
 function openImageModal(item) {
   document.getElementById('modal-img').src = item.image;
   document.getElementById('modal-weights').innerHTML =
-    `<p style="font-size:11px;color:var(--muted);margin:0 0 10px;">round ${item.round}${item.win ? ' · WIN' : ''}</p>` + weightBars(item.weights);
+    `<p style="font-size:11px;color:var(--muted);margin:0 0 10px;">round ${item.round}${item.win ? ' · WIN' : ''}</p>` + weightBars(item.weights, computeMuted(item.weights));
   document.getElementById('modal-copy').onclick = async () => {
     try {
       await navigator.clipboard.writeText(artistPromptFromWeights(item.weights));
@@ -303,6 +318,7 @@ async function loadSettings() {
   document.getElementById('s-weight-min').value = c.weight_bounds[0];
   document.getElementById('s-weight-max').value = c.weight_bounds[1];
   document.getElementById('s-weight-cutoff').value = c.weight_cutoff ?? 0;
+  document.getElementById('s-top-n-tags').value = c.top_n_tags ?? 0;
   document.getElementById('s-reuse-threshold').value = c.reuse_threshold ?? 0.03;
   document.getElementById('s-subject-prompt').value = c.subject_prompt || '';
   document.getElementById('s-scene-prompt').value = c.scene_prompt || '';
@@ -330,6 +346,7 @@ async function saveSettings() {
     weight_min: parseFloat(document.getElementById('s-weight-min').value),
     weight_max: parseFloat(document.getElementById('s-weight-max').value),
     weight_cutoff: parseFloat(document.getElementById('s-weight-cutoff').value) || 0,
+    top_n_tags: parseInt(document.getElementById('s-top-n-tags').value, 10) || 0,
     reuse_threshold: parseFloat(document.getElementById('s-reuse-threshold').value) || 0,
     subject_prompt: document.getElementById('s-subject-prompt').value,
     scene_prompt: document.getElementById('s-scene-prompt').value,

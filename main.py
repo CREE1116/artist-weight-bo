@@ -31,6 +31,7 @@ DEFAULT_CONFIG = {
     "artist_tags": [],
     "weight_bounds": [0.2, 1.6],
     "weight_cutoff": 0.2,
+    "top_n_tags": 0,
     "reuse_threshold": 0.03,
     "max_rounds": 100,
     "candidate_pool": 300,
