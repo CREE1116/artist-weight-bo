@@ -364,6 +364,16 @@ a{color:var(--accent)}
     <div class="msg" id="s-msg"></div>
 
     <hr>
+    <p class="eyebrow">진행 상황 백업</p>
+    <p class="hint" style="margin:6px 0 10px;">설정·태그·A/B 선택 기록·라운드를 JSON으로 내보냅니다. 이미지와 NovelAI 토큰은 포함되지 않습니다.</p>
+    <div class="row">
+      <button class="wide" id="s-export">📤 클립보드로 내보내기</button>
+      <button class="wide" id="s-import">📥 가져오기</button>
+    </div>
+    <textarea id="s-importBox" rows="3" style="margin-top:10px;" placeholder="여기에 JSON을 붙여넣고 가져오기를 누르세요 (비워두면 클립보드에서 읽습니다)"></textarea>
+    <div class="msg" id="s-backupMsg"></div>
+
+    <hr>
     <p class="eyebrow" style="color:var(--danger);">Danger Zone</p>
     <p class="hint" style="margin:6px 0 10px;">A/B 선택 기록·라운드·GP posterior를 전부 지웁니다. 태그/설정은 유지됩니다.</p>
     <button class="danger wide" id="s-reset">🗑 진행 상황 초기화</button>
@@ -905,6 +915,90 @@ async function choose(winner){
 
 async function startDuel(){ await advance(); }
 
+const EXPORT_KIND='artist-weight-bo/state';
+const EXPORT_VERSION=1;
+
+function buildExportPayload(){
+  const {novelaiToken, ...configNoToken}=state.config;
+  return {
+    kind: EXPORT_KIND, version: EXPORT_VERSION, exportedAt: new Date().toISOString(),
+    config: configNoToken,
+    points: session.points, pairs: session.pairs, round: session.round, history: session.history,
+  };
+}
+
+async function exportProgress(){
+  const msg=document.getElementById('s-backupMsg');
+  const json=JSON.stringify(buildExportPayload(), null, 2);
+  try{
+    await navigator.clipboard.writeText(json);
+    msg.className='msg ok';
+    msg.textContent=`\u2713 클립보드에 복사됨 (${session.pairs.length}개 선택 · ${session.round} 라운드 · ${json.length}자).`;
+    toast('진행 상황 내보냄');
+  }catch(e){
+    document.getElementById('s-importBox').value=json;
+    msg.className='msg err';
+    msg.textContent='클립보드 접근 실패: '+e.message+' — 아래 상자의 JSON을 직접 복사하세요.';
+  }
+}
+
+async function importProgress(){
+  const msg=document.getElementById('s-backupMsg');
+  const box=document.getElementById('s-importBox');
+  let raw=box.value.trim();
+  if(!raw){
+    try{ raw=(await navigator.clipboard.readText()).trim(); }
+    catch(e){ msg.className='msg err'; msg.textContent='클립보드 읽기 실패: '+e.message+' — JSON을 상자에 붙여넣으세요.'; return; }
+  }
+  if(!raw){ msg.className='msg err'; msg.textContent='가져올 JSON이 없습니다.'; return; }
+
+  let data;
+  try{ data=JSON.parse(raw); }
+  catch(e){ msg.className='msg err'; msg.textContent='JSON 파싱 실패: '+e.message; return; }
+  if(!data || data.kind!==EXPORT_KIND){ msg.className='msg err'; msg.textContent='이 앱의 백업 JSON이 아닙니다 (kind 불일치).'; return; }
+  if(data.version!==EXPORT_VERSION){ msg.className='msg err'; msg.textContent='지원하지 않는 백업 버전입니다: '+data.version; return; }
+
+  const cfg={...DEFAULT_CONFIG, ...(data.config||{}), novelaiToken: state.config.novelaiToken};
+  const tags=Array.isArray(cfg.artistTags)?cfg.artistTags:[];
+  const points=Array.isArray(data.points)?data.points:[];
+  const pairs=Array.isArray(data.pairs)?data.pairs:[];
+  if(!tags.length){ msg.className='msg err'; msg.textContent='백업에 artist tags가 없습니다.'; return; }
+  if(points.some(p=>!Array.isArray(p) || p.length!==tags.length)){
+    msg.className='msg err'; msg.textContent='points 차원이 artist tags 개수와 맞지 않습니다.'; return;
+  }
+  if(pairs.some(pr=>!Array.isArray(pr) || pr.length!==2 || pr.some(i=>!Number.isInteger(i) || i<0 || i>=points.length))){
+    msg.className='msg err'; msg.textContent='pairs 인덱스가 points 범위를 벗어납니다.'; return;
+  }
+  if(!confirm(`현재 진행 상황을 백업으로 덮어씁니다. 이미지 캐시는 지워집니다.\n\n가져올 내용: 태그 ${tags.length}개 · 선택 ${pairs.length}개 · ${data.round||0} 라운드\n\n계속할까요?`)) return;
+
+  // Images are IDB blobs keyed to the old run's points; they cannot travel in
+  // JSON, so drop them rather than let stale ids point at the wrong weights.
+  state.imageCache=[]; state.nextImgId=0;
+  idbClear();
+  objectUrls.forEach(u=>URL.revokeObjectURL(u)); objectUrls.clear();
+
+  state.config=cfg;
+  session.tags=tags; session.dim=tags.length;
+  session.lo=cfg.weightBounds[0]; session.hi=cfg.weightBounds[1];
+  session.maxRounds=cfg.maxRounds; session.poolSize=cfg.candidatePool;
+  session.gp=new GPPreferenceModel(session.dim);
+  // Re-seed like a fresh page load so bestPoint()'s pool — and the displayed
+  // best weights — match what the exporting browser shows.
+  session._rng=mulberry32(1);
+  session.points=points; session.pairs=pairs;
+  session.round=data.round||0; session.history=Array.isArray(data.history)?data.history:[];
+  session._bestCache=null;
+  currentLeft=currentRight=null; currentLeftIdx=currentRightIdx=null;
+
+  saveState();
+  box.value='';
+  msg.className='msg ok';
+  msg.textContent=`\u2713 가져오기 완료 (태그 ${tags.length}개 · 선택 ${pairs.length}개 · ${session.round} 라운드). NovelAI 토큰은 기존 값을 유지합니다.`;
+  toast('진행 상황 가져옴');
+  loadSettingsForm();
+  refreshStatus(); render(); renderBestPanel();
+}
+
 function resetProgress(){
   if(!confirm('지금까지의 A/B 선택 기록과 라운드를 전부 지웁니다. 태그/설정은 유지됩니다.\n\n계속할까요?')) return;
   session.reset();
@@ -1208,6 +1302,8 @@ document.getElementById('bottomTabs').addEventListener('click', e=>{
 document.getElementById('copyBestBtn').addEventListener('click', copyBestArtistPrompt);
 document.getElementById('s-save').addEventListener('click', saveSettingsForm);
 document.getElementById('s-parseBtn').addEventListener('click', parsePromptImport);
+document.getElementById('s-export').addEventListener('click', exportProgress);
+document.getElementById('s-import').addEventListener('click', importProgress);
 document.getElementById('s-reset').addEventListener('click', resetProgress);
 document.getElementById('landscapeRefresh').addEventListener('click', renderLandscape);
 
